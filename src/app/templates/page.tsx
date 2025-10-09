@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Search, 
   RefreshCw, 
   MessageSquare, 
   Filter,
+  ExternalLink,
   AlertCircle 
 } from 'lucide-react';
 
@@ -30,6 +32,7 @@ import {
 
 import { WhatsAppTemplate } from '@/types/whatsapp';
 import { 
+  WhatsAppAPIService, 
   extractPlaceholders, 
   getStatusBadgeVariant 
 } from '@/lib/whatsapp-api';
@@ -95,6 +98,7 @@ const mockTemplates: WhatsAppTemplate[] = [
 ];
 
 export default function TemplatesPage() {
+  const router = useRouter();
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +147,9 @@ export default function TemplatesPage() {
     });
   }, [templates, searchTerm, statusFilter]);
 
-
+  const handleUseTemplate = (templateName: string) => {
+    router.push(`/campaigns/new?template=${encodeURIComponent(templateName)}`);
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -160,7 +166,7 @@ export default function TemplatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Templates</h1>
+          <h1 className="text-3xl font-bold tracking-tight">WhatsApp Templates</h1>
           <p className="text-muted-foreground mt-2">
             Manage your approved WhatsApp message templates
           </p>
@@ -250,6 +256,7 @@ export default function TemplatesPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Placeholders</TableHead>
                 <TableHead>Last Updated</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -291,9 +298,20 @@ export default function TemplatesPage() {
                         <span className="text-muted-foreground text-sm">None</span>
                       )}
                     </TableCell>
-                                      <TableCell>
-                    {template.updated_time && formatDate(template.updated_time)}
-                  </TableCell>
+                    <TableCell>
+                      {template.updated_time && formatDate(template.updated_time)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        onClick={() => handleUseTemplate(template.name)}
+                        disabled={template.status !== 'APPROVED'}
+                        className="gap-2"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Use Template
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })}
