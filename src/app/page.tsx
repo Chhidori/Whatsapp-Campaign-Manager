@@ -34,65 +34,135 @@ import {
   getStatusBadgeVariant 
 } from '@/lib/whatsapp-api';
 
-// Mock data for development - replace with actual API call
-const mockTemplates: WhatsAppTemplate[] = [
+// Real WhatsApp templates data from API response
+const apiResponseData = [
   {
-    id: '1',
-    name: 'welcome_message',
-    language: 'en_US',
-    status: 'APPROVED',
-    category: 'UTILITY',
-    components: [
+    "data": [
       {
-        type: 'BODY',
-        text: 'Welcome {{1}}! Your account has been created successfully.',
-      }
-    ],
-    updated_time: '2024-01-15T10:30:00Z'
-  },
-  {
-    id: '2',
-    name: 'order_confirmation',
-    language: 'en_US',
-    status: 'APPROVED',
-    category: 'UTILITY',
-    components: [
+        "name": "water_supply_daily_updates",
+        "parameter_format": "POSITIONAL",
+        "components": [
+          {
+            "type": "BODY",
+            "text": "Today Updates:\n\nNumber of Orders: {{1}}\nNumber of Orders Delivered: {{2}}\n\nRO Water: {{3}} liters\nSalt Water: {{4}} liters\n\nTotal Transaction Amount: ₹{{5}}\n\nAbsentees List:\n{{6}}\n\nRegards,\nFunbook Team",
+            "example": {
+              "body_text": [
+                [
+                  "30",
+                  "28",
+                  "2,00,000",
+                  "15,000",
+                  "15,000",
+                  "1. Ganesh"
+                ]
+              ]
+            }
+          }
+        ],
+        "language": "en",
+        "status": "APPROVED",
+        "category": "UTILITY",
+        "sub_category": "CUSTOM",
+        "id": "1408478400498664"
+      },
       {
-        type: 'BODY',
-        text: 'Hi {{1}}, your order #{{2}} has been confirmed. Total: ${{3}}',
-      }
-    ],
-    updated_time: '2024-01-14T15:45:00Z'
-  },
-  {
-    id: '3',
-    name: 'promotional_offer',
-    language: 'en_US',
-    status: 'PENDING',
-    category: 'MARKETING',
-    components: [
+        "name": "job_card_daily_updates",
+        "parameter_format": "POSITIONAL",
+        "components": [
+          {
+            "type": "BODY",
+            "text": "MS Printing Daily updates:\n\nJob Created: {{1}}\nJobs Overdue: {{2}}\n\nJob Stages:\nDesign: {{3}}\nPrinting: {{4}}\nCompleted: {{5}}\n\nThanks,\nFunbook Team",
+            "example": {
+              "body_text": [
+                [
+                  "6",
+                  "1",
+                  "2",
+                  "0",
+                  "1"
+                ]
+              ]
+            }
+          }
+        ],
+        "language": "en_IN",
+        "status": "APPROVED",
+        "category": "UTILITY",
+        "id": "716532877976999"
+      },
       {
-        type: 'BODY',
-        text: 'Special offer for {{1}}! Get {{2}}% off on your next purchase.',
-      }
-    ],
-    updated_time: '2024-01-13T09:20:00Z'
-  },
-  {
-    id: '4',
-    name: 'password_reset',
-    language: 'en_US',
-    status: 'REJECTED',
-    category: 'AUTHENTICATION',
-    components: [
+        "name": "watersupply_order_confirmation",
+        "parameter_format": "NAMED",
+        "components": [
+          {
+            "type": "HEADER",
+            "format": "TEXT",
+            "text": "Order Created Successfully"
+          },
+          {
+            "type": "BODY",
+            "text": "New order for {{client_name}} has been created in the app and let me know once it's delivered. So I'll change the status. Thanks",
+            "example": {
+              "body_text_named_params": [
+                {
+                  "param_name": "client_name",
+                  "example": "Lakshmi Mills"
+                }
+              ]
+            }
+          }
+        ],
+        "language": "en",
+        "status": "APPROVED",
+        "category": "UTILITY",
+        "sub_category": "CUSTOM",
+        "id": "706582665279019"
+      },
       {
-        type: 'BODY',
-        text: 'Your password reset code is {{1}}. Valid for 5 minutes.',
+        "name": "hello_world",
+        "parameter_format": "POSITIONAL",
+        "components": [
+          {
+            "type": "HEADER",
+            "format": "TEXT",
+            "text": "Hello World"
+          },
+          {
+            "type": "BODY",
+            "text": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us."
+          },
+          {
+            "type": "FOOTER",
+            "text": "WhatsApp Business Platform sample message"
+          }
+        ],
+        "language": "en_US",
+        "status": "APPROVED",
+        "category": "UTILITY",
+        "id": "4049153811993333"
       }
-    ],
-    updated_time: '2024-01-12T14:10:00Z'
+    ]
   }
 ];
+
+// Transform API data to WhatsAppTemplate format for the main templates page
+const realTemplates: WhatsAppTemplate[] = apiResponseData[0].data.map(template => ({
+  id: template.id,
+  name: template.name,
+  language: template.language,
+  status: template.status as 'APPROVED' | 'PENDING' | 'REJECTED',
+  category: template.category as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION',
+  components: template.components.map(comp => {
+    const component = {
+      type: comp.type as 'HEADER' | 'BODY' | 'FOOTER',
+      text: comp.text,
+      format: ('format' in comp && comp.format) ? comp.format as 'TEXT' : undefined
+    };
+    
+    return component;
+  }),
+  updated_time: new Date().toISOString()
+}));
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
@@ -116,7 +186,7 @@ export default function TemplatesPage() {
       // const apiService = new WhatsAppAPIService(accessToken, businessAccountId);
       // const fetchedTemplates = await apiService.fetchTemplates();
       
-      setTemplates(mockTemplates);
+      setTemplates(realTemplates);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load templates');
     } finally {

@@ -11,7 +11,8 @@ import {
   ChevronLeft,
   ChevronRight,
   User,
-  LogOut
+  LogOut,
+  MessageCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,12 @@ const navigation = [
     href: '/campaigns',
     icon: Send,
     description: 'Create and manage campaigns'
+  },
+  {
+    name: 'Messages',
+    href: '/messages',
+    icon: MessageCircle,
+    description: 'View message history'
   }
 ];
 

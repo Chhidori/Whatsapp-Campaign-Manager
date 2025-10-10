@@ -17,19 +17,31 @@ export interface Contact {
   created_date: string;
 }
 
+// WhatsApp Contact from wa_contacts table
+export interface WAContact {
+  name: string;
+  lead_id: string;
+}
+
+// Message History from wa_message_history table
 export interface MessageHistory {
   id: string;
   message_id?: string;
   from_number: string;
   to_number: string;
-  message_varchar?: string;
-  message_time: string;
-  message_type?: string;
-  wa_id?: string;
-  status?: string;
-  updated_date: string;
+  message_text: string;
+  message_type: 'Outgoing' | 'Incoming';
+  status: 'sent' | 'delivered' | 'read' | 'failed';
+  lead_id: string;
+  is_read: boolean;
   created_date: string;
   campaign_id?: string;
+}
+
+// Extended contact with message history
+export interface ContactWithHistory extends WAContact {
+  last_message?: MessageHistory;
+  unread_count?: number;
 }
 
 export interface CreateCampaignData {

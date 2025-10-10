@@ -14,7 +14,11 @@ console.log('🌍 Environment:', process.env.NODE_ENV);
 const hasRealCredentials = supabaseUrl !== 'https://your-project.supabase.co' && supabaseAnonKey !== 'your-anon-key';
 console.log('✅ Has real Supabase credentials:', hasRealCredentials);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  db: {
+    schema: supabaseSchema
+  }
+})
 
 // Export schema name for use in services
 export const SUPABASE_SCHEMA = supabaseSchema
