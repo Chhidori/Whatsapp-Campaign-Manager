@@ -4,7 +4,8 @@ import { ContactWithHistory } from '@/types/campaign';
 
 const formatTimeAgo = (date: string) => {
   const now = new Date();
-  const messageDate = new Date(date);
+  // Parse the UTC date string and convert to local time
+  const messageDate = new Date(date + (date.includes('Z') ? '' : 'Z')); // Ensure UTC parsing
   const diffInMinutes = Math.floor((now.getTime() - messageDate.getTime()) / (1000 * 60));
   
   if (diffInMinutes < 1) return 'Just now';
@@ -16,6 +17,7 @@ const formatTimeAgo = (date: string) => {
   const diffInDays = Math.floor(diffInHours / 24);
   if (diffInDays < 7) return `${diffInDays}d ago`;
   
+  // Convert to local date string
   return messageDate.toLocaleDateString();
 };
 
@@ -25,7 +27,7 @@ interface ContactListProps {
   onContactSelect: (contact: ContactWithHistory) => void;
   loading: boolean;
   currentPage: number;
-  contactsPerPage: number;
+  totalPages: number;
   onPageChange: (page: number) => void;
 }
 
@@ -35,7 +37,7 @@ export default function ContactList({
   onContactSelect,
   loading,
   currentPage,
-  contactsPerPage,
+  totalPages,
   onPageChange,
 }: ContactListProps) {
   if (loading) {
@@ -69,12 +71,6 @@ export default function ContactList({
     );
   }
 
-  // Calculate pagination
-  const totalPages = Math.ceil(contacts.length / contactsPerPage);
-  const startIndex = (currentPage - 1) * contactsPerPage;
-  const endIndex = startIndex + contactsPerPage;
-  const currentContacts = contacts.slice(startIndex, endIndex);
-
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
       onPageChange(newPage);
@@ -84,7 +80,7 @@ export default function ContactList({
   return (
     <>
       <div className="flex-1 overflow-y-auto contact-list">
-        {currentContacts.map((contact) => (
+        {contacts.map((contact) => (
         <div
           key={contact.lead_id}
           onClick={() => onContactSelect(contact)}
@@ -118,7 +114,7 @@ export default function ContactList({
               <p className="text-sm text-gray-500 truncate">
                 {contact.last_message?.message_text || 'No messages yet'}
               </p>
-              {contact.unread_count && contact.unread_count > 0 && (
+              {(contact.unread_count || 0) > 0 && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                   {contact.unread_count}
                 </span>
@@ -134,7 +130,7 @@ export default function ContactList({
       <div className="p-4 border-t border-gray-200 bg-white">
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            Showing {startIndex + 1}-{Math.min(endIndex, contacts.length)} of {contacts.length} contacts
+            Page {currentPage} of {totalPages}
           </div>
           <div className="flex items-center space-x-2">
             <button

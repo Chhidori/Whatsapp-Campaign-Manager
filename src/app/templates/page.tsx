@@ -152,7 +152,9 @@ export default function TemplatesPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    // Parse UTC date and convert to local time
+    const date = new Date(dateString + (dateString.includes('Z') ? '' : 'Z'));
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

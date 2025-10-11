@@ -39,86 +39,6 @@ const apiResponseData = [
   {
     "data": [
       {
-        "name": "water_supply_daily_updates",
-        "parameter_format": "POSITIONAL",
-        "components": [
-          {
-            "type": "BODY",
-            "text": "Today Updates:\n\nNumber of Orders: {{1}}\nNumber of Orders Delivered: {{2}}\n\nRO Water: {{3}} liters\nSalt Water: {{4}} liters\n\nTotal Transaction Amount: ₹{{5}}\n\nAbsentees List:\n{{6}}\n\nRegards,\nFunbook Team",
-            "example": {
-              "body_text": [
-                [
-                  "30",
-                  "28",
-                  "2,00,000",
-                  "15,000",
-                  "15,000",
-                  "1. Ganesh"
-                ]
-              ]
-            }
-          }
-        ],
-        "language": "en",
-        "status": "APPROVED",
-        "category": "UTILITY",
-        "sub_category": "CUSTOM",
-        "id": "1408478400498664"
-      },
-      {
-        "name": "job_card_daily_updates",
-        "parameter_format": "POSITIONAL",
-        "components": [
-          {
-            "type": "BODY",
-            "text": "MS Printing Daily updates:\n\nJob Created: {{1}}\nJobs Overdue: {{2}}\n\nJob Stages:\nDesign: {{3}}\nPrinting: {{4}}\nCompleted: {{5}}\n\nThanks,\nFunbook Team",
-            "example": {
-              "body_text": [
-                [
-                  "6",
-                  "1",
-                  "2",
-                  "0",
-                  "1"
-                ]
-              ]
-            }
-          }
-        ],
-        "language": "en_IN",
-        "status": "APPROVED",
-        "category": "UTILITY",
-        "id": "716532877976999"
-      },
-      {
-        "name": "watersupply_order_confirmation",
-        "parameter_format": "NAMED",
-        "components": [
-          {
-            "type": "HEADER",
-            "format": "TEXT",
-            "text": "Order Created Successfully"
-          },
-          {
-            "type": "BODY",
-            "text": "New order for {{client_name}} has been created in the app and let me know once it's delivered. So I'll change the status. Thanks",
-            "example": {
-              "body_text_named_params": [
-                {
-                  "param_name": "client_name",
-                  "example": "Lakshmi Mills"
-                }
-              ]
-            }
-          }
-        ],
-        "language": "en",
-        "status": "APPROVED",
-        "category": "UTILITY",
-        "sub_category": "CUSTOM",
-        "id": "706582665279019"
-      },
-      {
         "name": "hello_world",
         "parameter_format": "POSITIONAL",
         "components": [
@@ -216,7 +136,9 @@ export default function TemplatesPage() {
 
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    // Parse UTC date and convert to local time
+    const date = new Date(dateString + (dateString.includes('Z') ? '' : 'Z'));
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

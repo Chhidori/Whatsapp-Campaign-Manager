@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { 
   Table,
   TableBody,
@@ -11,27 +10,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Send, Plus, Clock, CheckCircle, Calendar, Users } from 'lucide-react';
+import { Send, Plus, Calendar } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CampaignService } from '@/lib/campaign-service';
 import { Campaign } from '@/types/campaign';
-
-const getStatusBadgeVariant = (status: Campaign['status']) => {
-  switch (status) {
-    case 'running':
-      return 'default';
-    case 'queued':
-      return 'secondary';
-    case 'done':
-      return 'default'; // Will be styled as success in the badge component
-    case 'paused':
-      return 'destructive';
-    case 'draft':
-      return 'outline';
-    default:
-      return 'outline';
-  }
-};
 
 export default function CampaignsPage() {
   const router = useRouter();
@@ -55,7 +37,9 @@ export default function CampaignsPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    // Parse UTC date and convert to local time
+    const date = new Date(dateString + (dateString.includes('Z') ? '' : 'Z'));
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -64,13 +48,7 @@ export default function CampaignsPage() {
     });
   };
 
-  // Calculate stats from campaigns
-  const stats = {
-    active: campaigns.filter(c => c.status === 'running').length,
-    scheduled: campaigns.filter(c => c.status === 'queued').length,
-    completed: campaigns.filter(c => c.status === 'done').length,
-    total: campaigns.length
-  };
+
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -89,46 +67,6 @@ export default function CampaignsPage() {
           <Plus className="h-4 w-4" />
           New Campaign
         </Button>
-      </div>
-
-      {/* Status Cards */}
-      <div className="grid md:grid-cols-4 gap-4 mb-8">
-        <div className="border rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Active</p>
-              <p className="text-2xl font-bold">{stats.active}</p>
-            </div>
-            <Send className="h-8 w-8 text-green-600" />
-          </div>
-        </div>
-        <div className="border rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Scheduled</p>
-              <p className="text-2xl font-bold">{stats.scheduled}</p>
-            </div>
-            <Clock className="h-8 w-8 text-blue-600" />
-          </div>
-        </div>
-        <div className="border rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Completed</p>
-              <p className="text-2xl font-bold">{stats.completed}</p>
-            </div>
-            <CheckCircle className="h-8 w-8 text-green-500" />
-          </div>
-        </div>
-        <div className="border rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Campaigns</p>
-              <p className="text-2xl font-bold">{stats.total}</p>
-            </div>
-            <Users className="h-8 w-8 text-gray-600" />
-          </div>
-        </div>
       </div>
 
       {/* Campaigns Table */}
@@ -158,10 +96,8 @@ export default function CampaignsPage() {
               <TableRow>
                 <TableHead>Campaign Name</TableHead>
                 <TableHead>Template</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Scheduled</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -176,15 +112,7 @@ export default function CampaignsPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{campaign.template_name}</span>
-                      <span className="text-sm text-muted-foreground">{campaign.template_language}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusBadgeVariant(campaign.status)}>
-                      {campaign.status.toUpperCase()}
-                    </Badge>
+                    <span className="font-medium">{campaign.template_name}</span>
                   </TableCell>
                   <TableCell>
                     {campaign.scheduled_at ? (
@@ -198,11 +126,6 @@ export default function CampaignsPage() {
                   </TableCell>
                   <TableCell>
                     <span className="text-sm">{formatDate(campaign.created_date)}</span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="outline" size="sm">
-                      View Details
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))}

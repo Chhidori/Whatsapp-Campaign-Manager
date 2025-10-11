@@ -1,9 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ContactWithHistory, MessageHistory } from '@/types/campaign';
 import ContactList from '@/components/messages/ContactList';
 import MessageView from '@/components/messages/MessageView';
+
+interface ContactsResponse {
+  contacts: ContactWithHistory[];
+  totalCount: number;
+  totalPages: number;
+  currentPage: number;
+}
 
 export default function MessagesPage() {
   const [contacts, setContacts] = useState<ContactWithHistory[]>([]);
@@ -14,24 +21,31 @@ export default function MessagesPage() {
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [contactsPerPage] = useState(20); // Show 20 contacts per page
 
-  useEffect(() => {
-    fetchContacts();
-  }, []);
-
-  const fetchContacts = async () => {
+  const fetchContacts = useCallback(async (page: number) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/contacts');
-      const data = await response.json();
-      setContacts(data);
+      const response = await fetch(`/api/contacts?page=${page}&limit=${contactsPerPage}`);
+      const data: ContactsResponse = await response.json();
+      
+      if (data.contacts) {
+        setContacts(data.contacts);
+        setTotalPages(data.totalPages);
+        setTotalCount(data.totalCount);
+      }
     } catch (error) {
       console.error('Error fetching contacts:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [contactsPerPage]);
+
+  useEffect(() => {
+    fetchContacts(currentPage);
+  }, [currentPage, fetchContacts]);
 
   const fetchMessages = async (leadId: string) => {
     setMessagesLoading(true);
@@ -48,9 +62,31 @@ export default function MessagesPage() {
     }
   };
 
+  // Silent fetch for automatic polling - no loading state
+  const fetchMessagesSilent = async (leadId: string) => {
+    try {
+      const response = await fetch(`/api/messages/${leadId}`);
+      const data = await response.json();
+      // Ensure data is an array
+      setMessages(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching messages silently:', error);
+      // Don't clear messages on error during silent fetch
+    }
+  };
+
   const handleContactSelect = (contact: ContactWithHistory) => {
     setSelectedContact(contact);
+    // Clear previous messages immediately to show loading state
+    setMessages([]);
     fetchMessages(contact.lead_id);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+    // Clear selected contact when changing pages
+    setSelectedContact(null);
+    setMessages([]);
   };
 
   return (
@@ -59,6 +95,11 @@ export default function MessagesPage() {
       <div className="w-1/3 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
           <h1 className="text-xl font-semibold text-gray-900">Messages</h1>
+          {totalCount > 0 && (
+            <p className="text-sm text-gray-500 mt-1">
+              {totalCount} total contacts
+            </p>
+          )}
         </div>
         <ContactList
           contacts={contacts}
@@ -66,8 +107,8 @@ export default function MessagesPage() {
           onContactSelect={handleContactSelect}
           loading={loading}
           currentPage={currentPage}
-          contactsPerPage={contactsPerPage}
-          onPageChange={setCurrentPage}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
         />
       </div>
 
@@ -78,12 +119,19 @@ export default function MessagesPage() {
             contact={selectedContact}
             messages={messages}
             loading={messagesLoading}
+            onMessageSent={() => fetchMessages(selectedContact.lead_id)}
+            onSilentRefresh={() => fetchMessagesSilent(selectedContact.lead_id)}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
             <div className="text-center">
               <div className="text-6xl mb-4">💬</div>
               <p className="text-lg">Select a contact to view message history</p>
+              {totalCount > 0 && (
+                <p className="text-sm mt-2">
+                  Browse through {totalCount} contacts using the pagination controls
+                </p>
+              )}
             </div>
           </div>
         )}

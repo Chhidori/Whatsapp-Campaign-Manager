@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server';
 import { MessageService } from '@/lib/message-service';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Fetch real data from the database
-    const contacts = await MessageService.getContacts();
+    // Get pagination parameters from URL
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
     
-    return NextResponse.json(contacts);
+    // Fetch paginated data from the database
+    const result = await MessageService.getContacts(page, limit);
+    
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Error in contacts API:', error);
     return NextResponse.json({ 

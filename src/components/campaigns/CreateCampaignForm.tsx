@@ -30,8 +30,10 @@ export default function CreateCampaignForm() {
     description: '',
     template_name: '',
     template_language: 'en_US',
-    scheduled_at: ''
+    scheduled_at: '' // Keep this for compatibility but won't use it
   });
+
+  const [templateId, setTemplateId] = useState<string>('');
 
   const [contacts, setContacts] = useState<ImportContact[]>([]);
   const [contactsInput, setContactsInput] = useState('');
@@ -147,8 +149,8 @@ export default function CreateCampaignForm() {
         setError('Campaign name is required');
         return;
       }
-      if (!campaignData.scheduled_at.trim()) {
-        setError('Schedule time is required');
+      if (!campaignData.template_name.trim()) {
+        setError('WhatsApp template is required');
         return;
       }
       setStep('contacts');
@@ -165,29 +167,59 @@ export default function CreateCampaignForm() {
     setError(null);
 
     try {
-      // Create campaign
-      const campaignResult = await CampaignService.createCampaign(campaignData);
+      // Create campaign and send webhook to n8n
+      const requestData = {
+        name: campaignData.name,
+        template_name: campaignData.template_name,
+        template_id: templateId || campaignData.template_name,
+        contacts: contacts.map(contact => ({
+          name: contact.name,
+          phone_number: contact.phone_number,
+          lead_id: `LEAD_${Date.now()}_${Math.floor(Math.random() * 1000)}` // Generate lead_id if not present
+        }))
+      };
       
-      if (campaignResult.error) {
-        throw campaignResult.error;
+      console.log('=== SENDING CAMPAIGN REQUEST ===');
+      console.log('Request data:', JSON.stringify(requestData, null, 2));
+      
+      const response = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+      
+      const result = await response.json();
+      console.log('=== CAMPAIGN RESPONSE ===');
+      console.log('Response data:', JSON.stringify(result, null, 2));
+
+      if (!response.ok) {
+        console.error('Campaign creation failed:', result);
+        throw new Error(result.error || 'Failed to create campaign');
       }
 
-      // Import contacts if any
-      if (contacts.length > 0) {
-        const contactsResult = await CampaignService.importContacts(contacts);
+      if (result.success) {
+        let successMessage = `Campaign "${campaignData.name}" created successfully! Campaign ID: ${result.campaign.id}`;
         
-        if (contactsResult.error) {
-          console.warn('Error importing contacts:', contactsResult.error);
-          // Don't fail the whole process for contact import errors
+        if (result.webhookError) {
+          successMessage += `\n\nNote: ${result.webhookError}`;
+        } else {
+          successMessage += '\n\nMessages have been sent to n8n for processing.';
         }
+        
+        setSuccess(successMessage);
+        
+        // Redirect to campaigns list after a short delay
+        setTimeout(() => {
+          router.push('/campaigns');
+        }, 3000);
+      } else {
+        throw new Error('Campaign creation failed');
       }
-
-      setSuccess(`Campaign "${campaignData.name}" created successfully!`);
-      
-      // Redirect to campaigns list after a short delay
-      setTimeout(() => {
-        router.push('/campaigns');
-      }, 2000);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -297,33 +329,25 @@ export default function CreateCampaignForm() {
               <h2 className="text-xl font-semibold">Campaign Information</h2>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Campaign Name *</label>
-                <Input
-                  value={campaignData.name}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
-                  placeholder="e.g., October Promotion Campaign"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">Template Language</label>
-                <Input
-                  value={campaignData.template_language}
-                  onChange={(e) => handleInputChange('template_language', e.target.value)}
-                  placeholder="e.g., en_US"
-                />
-              </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Campaign Name *</label>
+              <Input
+                value={campaignData.name}
+                onChange={(e) => handleInputChange('name', e.target.value)}
+                placeholder="e.g., October Promotion Campaign"
+              />
             </div>
 
-            <TemplateSelect
-              selectedTemplate={campaignData.template_name}
-              onTemplateChange={(templateName: string, templateLanguage: string) => {
-                handleInputChange('template_name', templateName);
-                handleInputChange('template_language', templateLanguage);
-              }}
-            />
+            <div className="relative z-50">
+              <TemplateSelect
+                selectedTemplate={campaignData.template_name}
+                onTemplateChange={(templateName: string, templateLanguage: string, templateIdValue?: string) => {
+                  handleInputChange('template_name', templateName);
+                  handleInputChange('template_language', templateLanguage);
+                  setTemplateId(templateIdValue || '');
+                }}
+              />
+            </div>
 
             <div>
               <label className="text-sm font-medium mb-2 block">Description</label>
@@ -335,18 +359,19 @@ export default function CreateCampaignForm() {
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Schedule *</label>
+              <label className="text-sm font-medium mb-2 block">Schedule</label>
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <Input
                   type="datetime-local"
                   value={campaignData.scheduled_at || ''}
                   onChange={(e) => handleInputChange('scheduled_at', e.target.value)}
-                  required
+                  disabled
+                  placeholder="Currently disabled - campaigns will be sent immediately"
                 />
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Leave empty to send immediately
+                Scheduling is currently disabled. Campaigns will be sent immediately.
               </p>
             </div>
           </div>
@@ -478,14 +503,10 @@ export default function CreateCampaignForm() {
                     <span className="text-muted-foreground">Template:</span>
                     <span>{campaignData.template_name}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Language:</span>
-                    <span>{campaignData.template_language}</span>
-                  </div>
                   {campaignData.scheduled_at && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Scheduled:</span>
-                      <span>{new Date(campaignData.scheduled_at).toLocaleString()}</span>
+                      <span>{new Date(campaignData.scheduled_at + (campaignData.scheduled_at.includes('Z') ? '' : 'Z')).toLocaleString()}</span>
                     </div>
                   )}
                   {campaignData.description && (

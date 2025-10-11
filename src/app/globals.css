@@ -53,6 +53,19 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Ensure button primary variant has proper styling */
+.bg-primary {
+  background-color: hsl(var(--primary)) !important;
+}
+
+.text-primary-foreground {
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+.hover\:bg-primary\/90:hover {
+  background-color: hsl(var(--primary) / 0.9) !important;
+}
+
 /* Custom styles for message components */
 .message-container {
   scrollbar-width: thin;
