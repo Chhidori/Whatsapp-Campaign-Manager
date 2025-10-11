@@ -42,9 +42,6 @@ export default function CreateCampaignForm() {
   const [success, setSuccess] = useState<string | null>(null);
   const [step, setStep] = useState<'details' | 'contacts' | 'review'>('details');
 
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-
   // Test database connection on component mount
   useEffect(() => {
     const testConnection = async () => {

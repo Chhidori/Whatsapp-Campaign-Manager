@@ -32,7 +32,6 @@ import {
 
 import { WhatsAppTemplate } from '@/types/whatsapp';
 import { 
-  WhatsAppAPIService, 
   extractPlaceholders, 
   getStatusBadgeVariant 
 } from '@/lib/whatsapp-api';

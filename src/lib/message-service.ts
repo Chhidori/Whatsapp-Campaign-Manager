@@ -36,13 +36,28 @@ export class MessageService {
       }
 
       // Transform to ContactWithHistory format
-      const contactsWithHistory: ContactWithHistory[] = (contactSummaries || []).map((contact: any) => ({
+      const contactsWithHistory: ContactWithHistory[] = (contactSummaries || []).map((contact: {
+        owner_name: string;
+        lead_id: string;
+        recent_timestamp: string;
+        recent_message_text: string;
+        unread_count?: number;
+      }) => ({
         name: contact.owner_name,
         lead_id: contact.lead_id,
-        last_message: {
-          created_date: contact.recent_timestamp,
+        last_message: contact.recent_timestamp ? {
+          id: `summary_${contact.lead_id}`,
+          message_id: '',
+          from_number: '',
+          to_number: '',
           message_text: contact.recent_message_text,
-        } as any,
+          message_type: 'Outgoing' as const,
+          status: 'sent' as const,
+          lead_id: contact.lead_id,
+          is_read: false,
+          created_date: contact.recent_timestamp,
+          campaign_id: undefined,
+        } : undefined,
         unread_count: contact.unread_count || 0,
       }));
 
@@ -76,6 +91,32 @@ export class MessageService {
       return messages || [];
     } catch (error) {
       console.error('Error fetching messages:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark messages as read for a specific lead
+   */
+  static async markMessagesAsRead(leadId: string, messageIds?: string[]): Promise<void> {
+    try {
+      let query = supabase
+        .from('wa_message_history')
+        .update({ is_read: true })
+        .eq('lead_id', leadId);
+
+      // If specific message IDs are provided, only update those
+      if (messageIds && messageIds.length > 0) {
+        query = query.in('id', messageIds);
+      }
+
+      const { error } = await query;
+
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
       throw error;
     }
   }
