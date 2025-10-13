@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { MessageService } from '@/lib/message-service';
+import { createSupabaseForApiRoute } from '@/lib/supabase';
 
 export async function GET(
   request: Request,
@@ -12,8 +13,11 @@ export async function GET(
       return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 });
     }
 
+    // Create Supabase client for this API route
+    const supabase = createSupabaseForApiRoute(request);
+
     // Fetch real data from the database
-    const messages = await MessageService.getMessages(leadId);
+    const messages = await MessageService.getMessages(supabase, leadId);
     
     return NextResponse.json(messages);
   } catch (error) {

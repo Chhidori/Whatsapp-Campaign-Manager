@@ -1,12 +1,21 @@
-import { supabase } from '@/lib/supabase';
 import { ContactWithHistory, MessageHistory } from '@/types/campaign';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type SupabaseClientType = {
+  from: (table: string) => any;
+};
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export class MessageService {
   /**
    * Get paginated contacts from the contact_summaries view
    * Simple and fast - just query the view with pagination
    */
-  static async getContacts(page: number = 1, limit: number = 20): Promise<{
+  static async getContacts(
+    supabase: SupabaseClientType,
+    page: number = 1, 
+    limit: number = 20
+  ): Promise<{
     contacts: ContactWithHistory[];
     totalCount: number;
     totalPages: number;
@@ -76,7 +85,7 @@ export class MessageService {
   /**
    * Get all messages for a specific lead (called when contact is clicked)
    */
-  static async getMessages(leadId: string): Promise<MessageHistory[]> {
+  static async getMessages(supabase: SupabaseClientType, leadId: string): Promise<MessageHistory[]> {
     try {
       const { data: messages, error } = await supabase
         .from('wa_message_history')
@@ -98,12 +107,11 @@ export class MessageService {
   /**
    * Mark messages as read for a specific lead
    */
-  static async markMessagesAsRead(leadId: string, messageIds?: string[]): Promise<void> {
+  static async markMessagesAsRead(supabase: SupabaseClientType, leadId: string, messageIds?: string[]): Promise<void> {
     try {
-      let query = supabase
-        .from('wa_message_history')
-        .update({ is_read: true })
-        .eq('lead_id', leadId);
+      // Build the update query
+      const updateData = { is_read: true };
+      let query = supabase.from('wa_message_history').update(updateData).eq('lead_id', leadId);
 
       // If specific message IDs are provided, only update those
       if (messageIds && messageIds.length > 0) {

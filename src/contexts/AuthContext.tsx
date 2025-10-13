@@ -1,8 +1,9 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, type User } from '@/lib/supabase';
+import { browserSupabase, type User } from '@/lib/supabase-browser';
 import { Session } from '@supabase/supabase-js';
+import { getUserSchema, setUserSchemaCookie, removeUserSchemaCookie } from '@/lib/user-schema';
 
 interface AuthContextType {
   user: User | null;
@@ -35,18 +36,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    browserSupabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      
+      // If user is logged in but no schema cookie exists, fetch and set it
+      if (session?.user?.email) {
+        const currentSchema = document.cookie.split(';').find(cookie => 
+          cookie.trim().startsWith('user_schema=')
+        );
+        
+        if (!currentSchema) {
+          const userSchema = await getUserSchema(session.user.email);
+          if (userSchema) {
+            setUserSchemaCookie(userSchema);
+          } else {
+            // If no schema found, sign out the user
+            await browserSupabase.auth.signOut();
+            console.error('No schema assigned to user:', session.user.email);
+          }
+        }
+      }
+      
       setLoading(false);
     });
 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = browserSupabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      
+      // Handle schema cookie on auth state changes
+      if (session?.user?.email) {
+        const userSchema = await getUserSchema(session.user.email);
+        if (userSchema) {
+          setUserSchemaCookie(userSchema);
+        } else {
+          // If no schema found, sign out the user
+          await browserSupabase.auth.signOut();
+          console.error('No schema assigned to user:', session.user.email);
+        }
+      } else {
+        // User signed out, remove schema cookie
+        removeUserSchemaCookie();
+      }
+      
       setLoading(false);
     });
 
@@ -55,41 +91,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error, data } = await browserSupabase.auth.signInWithPassword({
         email,
         password,
       });
-      return { error };
-    } catch {
-      // Fallback demo authentication for development
-      if (email === 'demo@example.com' && password === 'demo123') {
-        const demoUser = {
-          id: 'demo-user-id',
-          email: 'demo@example.com',
-          user_metadata: {
-            full_name: 'Demo User',
-            first_name: 'Demo'
-          }
-        };
-        setUser(demoUser);
-        // Create a minimal session object for demo
-        const demoSession = {
-          user: demoUser,
-          access_token: 'demo-token',
-          refresh_token: 'demo-refresh',
-          expires_in: 3600,
-          expires_at: Date.now() + 3600000,
-          token_type: 'bearer'
-        } as unknown as Session;
-        setSession(demoSession);
-        return { error: null };
+      
+      if (error) {
+        return { error };
       }
-      return { error: new Error('Invalid credentials') };
+
+      // After successful authentication, get user's schema and set cookie
+      if (data.user?.email) {
+        const userSchema = await getUserSchema(data.user.email);
+        if (userSchema) {
+          setUserSchemaCookie(userSchema);
+        } else {
+          // If no schema found, sign out the user
+          await browserSupabase.auth.signOut();
+          return { error: new Error('No schema assigned to this user. Please contact administrator.') };
+        }
+      }
+      
+      return { error: null };
+    } catch (authError) {
+      return { error: authError instanceof Error ? authError : new Error('Authentication failed') };
     }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await browserSupabase.auth.signOut();
+    // Remove schema cookie on sign out
+    removeUserSchemaCookie();
   };
 
   const value = {

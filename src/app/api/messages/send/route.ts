@@ -19,7 +19,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Prepare webhook payload for individual message (same as campaign payload but no template_id or template_name)
-    const webhookUrl = process.env.SINGLE_MESSAGE_WEBHOOK_ENDPOINT || 'https://n8n.funbook.org.in/webhook/single-message';
+    const webhookUrl = process.env.SINGLE_MESSAGE_WEBHOOK_ENDPOINT;
+    
+    if (!webhookUrl) {
+      return NextResponse.json({ 
+        error: 'Webhook URL not configured. Please set SINGLE_MESSAGE_WEBHOOK_ENDPOINT environment variable.' 
+      }, { status: 500 });
+    }
     
     const webhookPayload = {
       name: name || '',

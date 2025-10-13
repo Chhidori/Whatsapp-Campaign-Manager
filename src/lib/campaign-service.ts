@@ -1,15 +1,20 @@
-import { supabase, SUPABASE_SCHEMA } from './supabase';
 import { Campaign, Contact, CreateCampaignData, ImportContact } from '@/types/campaign';
 
 type ServiceError = Error | null;
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type SupabaseClientType = {
+  schema: (schema: string) => any;
+  from: (table: string) => any;
+};
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export class CampaignService {
   
   // Test connection to the schema and table
-  static async testConnection(): Promise<boolean> {
+  static async testConnection(supabase: SupabaseClientType): Promise<boolean> {
     try {
       const { error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_campaigns')
         .select('count')
         .limit(1);
@@ -22,12 +27,11 @@ export class CampaignService {
   }
 
   // Create a new campaign
-  static async createCampaign(campaignData: CreateCampaignData): Promise<{ data: Campaign | null; error: ServiceError }> {
+  static async createCampaign(supabase: SupabaseClientType, campaignData: CreateCampaignData): Promise<{ data: Campaign | null; error: ServiceError }> {
     try {
 
       
       const { data, error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_campaigns')
         .insert([campaignData])
         .select()
@@ -45,10 +49,9 @@ export class CampaignService {
   }
 
   // Get all campaigns
-  static async getCampaigns(): Promise<{ data: Campaign[] | null; error: ServiceError }> {
+  static async getCampaigns(supabase: SupabaseClientType): Promise<{ data: Campaign[] | null; error: ServiceError }> {
     try {
       const { data, error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_campaigns')
         .select('*')
         .order('created_date', { ascending: false });
@@ -61,10 +64,9 @@ export class CampaignService {
   }
 
   // Get campaign by id
-  static async getCampaignById(id: string): Promise<{ data: Campaign | null; error: ServiceError }> {
+  static async getCampaignById(supabase: SupabaseClientType, id: string): Promise<{ data: Campaign | null; error: ServiceError }> {
     try {
       const { data, error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_campaigns')
         .select('*')
         .eq('id', id)
@@ -78,10 +80,9 @@ export class CampaignService {
   }
 
   // Update campaign
-  static async updateCampaign(id: string, updates: Partial<Campaign>): Promise<{ data: Campaign | null; error: ServiceError }> {
+  static async updateCampaign(supabase: SupabaseClientType, id: string, updates: Partial<Campaign>): Promise<{ data: Campaign | null; error: ServiceError }> {
     try {
       const { data, error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_campaigns')
         .update(updates)
         .eq('id', id)
@@ -96,14 +97,13 @@ export class CampaignService {
   }
 
   // Import contacts in bulk
-  static async importContacts(contacts: ImportContact[]): Promise<{ data: Contact[] | null; error: ServiceError }> {
+  static async importContacts(supabase: SupabaseClientType, contacts: ImportContact[]): Promise<{ data: Contact[] | null; error: ServiceError }> {
     try {
       console.log('👥 CampaignService.importContacts called with:', contacts.length, 'contacts');
       
 
 
       const { data, error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_contacts')
         .upsert(contacts, { onConflict: 'phone_number' })
         .select();
@@ -116,10 +116,9 @@ export class CampaignService {
   }
 
   // Get all contacts
-  static async getContacts(): Promise<{ data: Contact[] | null; error: ServiceError }> {
+  static async getContacts(supabase: SupabaseClientType): Promise<{ data: Contact[] | null; error: ServiceError }> {
     try {
       const { data, error } = await supabase
-        .schema(SUPABASE_SCHEMA)
         .from('wa_contacts')
         .select('*')
         .order('created_date', { ascending: false });

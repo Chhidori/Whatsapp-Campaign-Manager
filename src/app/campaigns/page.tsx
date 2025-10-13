@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/table';
 import { Send, Plus, Calendar } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { CampaignService } from '@/lib/campaign-service';
 import { Campaign } from '@/types/campaign';
 
 export default function CampaignsPage() {
@@ -27,8 +26,14 @@ export default function CampaignsPage() {
   const loadCampaigns = async () => {
     setLoading(true);
     try {
-      const { data } = await CampaignService.getCampaigns();
-      setCampaigns(data || []);
+      const response = await fetch('/api/campaigns/list');
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to fetch campaigns');
+      }
+      
+      setCampaigns(result.data || []);
     } catch (error) {
       console.error('Error loading campaigns:', error);
     } finally {

@@ -1,15 +1,19 @@
 import { NextResponse } from 'next/server';
 import { MessageService } from '@/lib/message-service';
+import { createSupabaseForApiRoute } from '@/lib/supabase';
 
 export async function GET(request: Request) {
   try {
+    // Create Supabase client for this API route
+    const supabase = createSupabaseForApiRoute(request);
+    
     // Get pagination parameters from URL
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     
     // Fetch paginated data from the database
-    const result = await MessageService.getContacts(page, limit);
+    const result = await MessageService.getContacts(supabase, page, limit);
     
     return NextResponse.json(result);
   } catch (error) {

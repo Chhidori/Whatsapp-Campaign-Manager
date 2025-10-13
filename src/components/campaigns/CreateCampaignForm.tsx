@@ -45,9 +45,15 @@ export default function CreateCampaignForm() {
   // Test database connection on component mount
   useEffect(() => {
     const testConnection = async () => {
-      const canConnect = await CampaignService.testConnection();
-      
-      if (!canConnect) {
+      try {
+        const response = await fetch('/api/test-db');
+        const result = await response.json();
+        
+        if (!result.canConnect) {
+          setError('Database connection failed. Please check your configuration.');
+        }
+      } catch (error) {
+        console.error('Error testing connection:', error);
         setError('Database connection failed. Please check your configuration.');
       }
     };

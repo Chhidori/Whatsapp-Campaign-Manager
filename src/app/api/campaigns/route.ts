@@ -1,23 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createSupabaseForApiRoute } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
   try {
     console.log('=== CAMPAIGN CREATION STARTED ===');
     
+    // Create Supabase client for this API route
+    const supabase = createSupabaseForApiRoute(request);
+    
     const body = await request.json();
     console.log('Request body received:', JSON.stringify(body, null, 2));
     
-    const { name, template_name, template_id, contacts } = body;
-    console.log('Extracted data:', { name, template_name, template_id, contactCount: contacts?.length });
+    const { name, description, template_name, template_id, contacts, scheduled_at } = body;
+    console.log('Extracted data:', { name, description, template_name, template_id, scheduled_at, contactCount: contacts?.length });
 
-    // Step 1: Insert campaign into database (without scheduled_at field to avoid timestamp error)
+    // Step 1: Insert campaign into database
     const campaignInsertData = {
       name,
+      description,
       template_name,
       status: 'draft', // Changed from 'active' to 'draft' to match database constraint
-      created_date: new Date().toISOString()
-      // Don't include scheduled_at field to avoid timestamp error
+      created_date: new Date().toISOString(),
+      ...(scheduled_at && { scheduled_at }) // Only include scheduled_at if provided
     };
     
     console.log('Inserting campaign with data:', campaignInsertData);
@@ -109,7 +113,16 @@ export async function POST(request: NextRequest) {
     console.log('Contacts inserted successfully:', insertedContacts);
 
     // Step 2: Make webhook request to n8n using the contacts with generated lead_ids
-    const webhookUrl = process.env.WEBHOOK_ENDPOINT || 'https://n8n.funbook.org.in/webhook-test/message';
+    const webhookUrl = process.env.WEBHOOK_ENDPOINT;
+    
+    if (!webhookUrl) {
+      console.error('WEBHOOK_ENDPOINT environment variable is not set');
+      return NextResponse.json({
+        success: true,
+        campaign,
+        webhookError: 'Webhook URL not configured but campaign was created'
+      });
+    }
     
     // Use the contactsWithLeadIds (which have auto-generated lead_ids) for webhook
     const webhookPayload = contactsWithLeadIds.map((contact: { name: string; lead_id: string; phone_number: string }) => ({
