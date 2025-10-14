@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { MessageSquare, Plus } from 'lucide-react';
+import { MessageSquare, Plus, Edit, Trash2, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Prompt } from '@/types/prompt';
 
@@ -18,6 +18,9 @@ export default function PromptsPage() {
   const router = useRouter();
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [tableNotFound, setTableNotFound] = useState(false);
+  const [creatingTable, setCreatingTable] = useState(false);
 
   const loadPrompts = useCallback(async () => {
     setLoading(true);
@@ -28,19 +31,91 @@ export default function PromptsPage() {
           'Cache-Control': 'no-cache'
         }
       });
+      
+      // Log the response for debugging
+      console.log('API Response status:', response.status);
+      console.log('API Response headers:', Object.fromEntries(response.headers.entries()));
+      
       const result = await response.json();
+      console.log('API Response body:', result);
       
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch prompts');
+        console.error('API Error Details:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: result.error,
+          details: result.details,
+          message: result.message
+        });
+        
+        // Check if it's a table not found error
+        if (response.status === 404 && result.error === 'Prompts table not found') {
+          setTableNotFound(true);
+          return; // Don't throw error, just show create table option
+        }
+        
+        throw new Error(result.error || result.message || `HTTP ${response.status}: ${response.statusText}`);
       }
       
       setPrompts(result.data || []);
     } catch (error) {
       console.error('Error loading prompts:', error);
+      // Show user-friendly error
+      alert(`Failed to load prompts: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const handleCreateTable = useCallback(async () => {
+    setCreatingTable(true);
+    try {
+      const response = await fetch('/api/create-prompts-table', {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create prompts table');
+      }
+      
+      // Table created successfully, now load prompts
+      setTableNotFound(false);
+      await loadPrompts();
+    } catch (error) {
+      console.error('Error creating prompts table:', error);
+      alert(`Failed to create prompts table: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setCreatingTable(false);
+    }
+  }, [loadPrompts]);
+
+  const handleDelete = useCallback(async (promptId: string) => {
+    if (!confirm('Are you sure you want to delete this prompt? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeleteLoading(promptId);
+    try {
+      const response = await fetch(`/api/prompts/${promptId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to delete prompt');
+      }
+
+      // Reload prompts to reflect the deletion
+      await loadPrompts();
+    } catch (error) {
+      console.error('Error deleting prompt:', error);
+      alert('Failed to delete prompt. Please try again.');
+    } finally {
+      setDeleteLoading(null);
+    }
+  }, [loadPrompts]);
 
   useEffect(() => {
     loadPrompts();
@@ -89,6 +164,31 @@ export default function PromptsPage() {
             <p className="text-muted-foreground">Loading prompts...</p>
           </div>
         </div>
+      ) : tableNotFound ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center border rounded-lg bg-yellow-50 border-yellow-200">
+          <MessageSquare className="h-12 w-12 text-yellow-600 mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Prompts Table Not Found</h3>
+          <p className="text-muted-foreground mb-4 max-w-md">
+            The prompts table doesn&apos;t exist in your database yet. Click the button below to create it automatically.
+          </p>
+          <Button 
+            onClick={handleCreateTable} 
+            disabled={creatingTable}
+            className="gap-2"
+          >
+            {creatingTable ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Creating Table...
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4" />
+                Create Prompts Table
+              </>
+            )}
+          </Button>
+        </div>
       ) : prompts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center border rounded-lg">
           <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
@@ -110,6 +210,7 @@ export default function PromptsPage() {
                 <TableHead>GPT Model</TableHead>
                 <TableHead>Prompt Message</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -130,6 +231,31 @@ export default function PromptsPage() {
                   </TableCell>
                   <TableCell>
                     <span className="text-sm">{formatDate(prompt.created_date)}</span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => router.push(`/prompts/${prompt.id}/edit`)}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(prompt.id)}
+                        disabled={deleteLoading === prompt.id}
+                        className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deleteLoading === prompt.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

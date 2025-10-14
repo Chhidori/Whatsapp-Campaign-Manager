@@ -6,6 +6,8 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseForApiRoute(request);
 
+    console.log('Attempting to fetch prompts from wa_prompts table...');
+    
     const { data: prompts, error } = await supabase
       .from('wa_prompts')
       .select('id, name, gpt_model, prompt_message, created_date, updated_date')
@@ -14,8 +16,28 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error fetching prompts:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      
+      // Check if it's a table not found error
+      if (error.code === 'PGRST116' || error.message.includes('relation') || error.message.includes('does not exist')) {
+        return NextResponse.json(
+          { 
+            error: 'Prompts table not found', 
+            details: 'The wa_prompts table does not exist in the database. Please create the table first.',
+            code: error.code,
+            message: error.message
+          },
+          { status: 404 }
+        );
+      }
+      
       return NextResponse.json(
-        { error: 'Failed to fetch prompts', details: error.message },
+        { error: 'Failed to fetch prompts', details: error.message, code: error.code },
         { status: 500 }
       );
     }

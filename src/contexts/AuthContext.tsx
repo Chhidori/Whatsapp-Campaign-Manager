@@ -44,14 +44,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     }, 5000); // 5 second timeout
-    
-    // Get initial session
-    browserSupabase.auth.getSession().then(async ({ data: { session }, error }) => {
+
+    // Get initial session with better error handling
+    const initializeAuth = async () => {
+      try {
+        const { data: { session }, error } = await browserSupabase.auth.getSession();
+        
+        if (!mounted) return;
       if (!mounted) return;
       
       if (error) {
-        console.error('Session error:', error);
-        setLoading(false);
+        // Handle refresh token errors by clearing the session silently
+        if (error.message?.includes('Invalid Refresh Token') || 
+            error.message?.includes('Refresh Token Not Found') ||
+            error.message?.includes('refresh_token')) {
+          console.debug('Clearing expired session tokens');
+          // Clear any stale tokens silently
+          try {
+            await browserSupabase.auth.signOut();
+          } catch (signOutError) {
+            // Ignore sign out errors during cleanup
+            console.debug('Sign out error during cleanup:', signOutError);
+          }
+          setSession(null);
+          setUser(null);
+          removeUserSchemaCookie();
+        } else {
+          console.error('Session error:', error);
+        }
+        if (mounted) {
+          clearTimeout(loadingTimeout);
+          setLoading(false);
+        }
         return;
       }
       
@@ -81,23 +105,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       
-      if (mounted) {
-        clearTimeout(loadingTimeout);
-        setLoading(false);
+        if (mounted) {
+          clearTimeout(loadingTimeout);
+          setLoading(false);
+        }
+      } catch (error) {
+        if (mounted) {
+          console.error('Auth initialization error:', error);
+          clearTimeout(loadingTimeout);
+          setLoading(false);
+        }
       }
-    }).catch((error) => {
-      if (mounted) {
-        console.error('Auth initialization error:', error);
-        clearTimeout(loadingTimeout);
-        setLoading(false);
-      }
-    });
+    };
+
+    // Initialize authentication
+    initializeAuth();
 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = browserSupabase.auth.onAuthStateChange(async (_event, session) => {
+    } = browserSupabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
+      
+      // Handle TOKEN_REFRESHED errors
+      if (event === 'TOKEN_REFRESHED' && !session) {
+        console.warn('Token refresh failed, clearing session');
+        setSession(null);
+        setUser(null);
+        removeUserSchemaCookie();
+        if (mounted) {
+          setLoading(false);
+        }
+        return;
+      }
       
       setSession(session);
       setUser(session?.user ?? null);
@@ -117,7 +157,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           removeUserSchemaCookie();
         }
       } catch (error) {
-        console.error('Error in auth state change handler:', error);
+        // Handle refresh token errors in schema operations
+        if (error instanceof Error && error.message?.includes('refresh_token')) {
+          console.warn('Refresh token error in auth state change, signing out');
+          await browserSupabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          removeUserSchemaCookie();
+        } else {
+          console.error('Error in auth state change handler:', error);
+        }
       }
       
       if (mounted) {
