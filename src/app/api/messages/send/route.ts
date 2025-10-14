@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getUserSchemaFromServerCookies } from '@/lib/server-user-schema';
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,12 +28,17 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
     
+    // Get user schema for the webhook request
+    const userSchema = await getUserSchemaFromServerCookies();
+    console.log('User schema for individual message webhook:', userSchema);
+    
     const webhookPayload = {
       name: name || '',
       Phone: phone_number || '',
       campaign_id: campaign_id || null, // Include campaign_id if available
       lead_id: lead_id,
       message_content: message_content, // This is the extra field - the message user typed
+      schema_name: userSchema
       // Exclude template_id and template_name for individual messages
     };
 

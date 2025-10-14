@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseForApiRoute } from '@/lib/supabase';
+import { getUserSchemaFromServerCookies } from '@/lib/server-user-schema';
 
 export async function POST(request: NextRequest) {
   try {
@@ -126,6 +127,10 @@ export async function POST(request: NextRequest) {
       });
     }
     
+    // Get user schema for the webhook request
+    const userSchema = await getUserSchemaFromServerCookies();
+    console.log('User schema for webhook:', userSchema);
+    
     // Use the contactsWithLeadIds (which have auto-generated lead_ids) for webhook
     const webhookPayload = contactsWithLeadIds.map((contact: { name: string; lead_id: string; phone_number: string }) => ({
       name: contact.name,
@@ -133,7 +138,8 @@ export async function POST(request: NextRequest) {
       campaign_id: campaignId,
       template_name,
       lead_id: contact.lead_id,
-      template_id: template_id || ''
+      template_id: template_id || '',
+      schema_name: userSchema
     }));
 
     console.log('Sending webhook request to:', webhookUrl);
