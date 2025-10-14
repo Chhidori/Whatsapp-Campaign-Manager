@@ -16,11 +16,14 @@ import {
   Download,
   Trash2,
   CheckCircle,
-  FileText
+  FileText,
+  Bot
 } from 'lucide-react';
 import { CampaignService } from '@/lib/campaign-service';
 import { CreateCampaignData, ImportContact } from '@/types/campaign';
 import TemplateSelect from './TemplateSelect';
+import PromptSelect from './PromptSelect';
+import CustomToggle from '@/components/ui/custom-toggle';
 
 export default function CreateCampaignForm() {
   const router = useRouter();
@@ -30,17 +33,20 @@ export default function CreateCampaignForm() {
     description: '',
     template_name: '',
     template_language: 'en_US',
-    scheduled_at: '' // Keep this for compatibility but won't use it
+    scheduled_at: '', // Keep this for compatibility but won't use it
+    prompt_id: '',
+    auto_reply: false
   });
 
   const [templateId, setTemplateId] = useState<string>('');
+  const [promptName, setPromptName] = useState<string>('');
 
   const [contacts, setContacts] = useState<ImportContact[]>([]);
   const [contactsInput, setContactsInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [step, setStep] = useState<'details' | 'contacts' | 'review'>('details');
+  const [step, setStep] = useState<'details' | 'automation' | 'contacts' | 'review'>('details');
 
   // Test database connection on component mount
   useEffect(() => {
@@ -61,7 +67,7 @@ export default function CreateCampaignForm() {
     testConnection();
   }, []);
 
-  const handleInputChange = (field: keyof CreateCampaignData, value: string) => {
+  const handleInputChange = (field: keyof CreateCampaignData, value: string | boolean) => {
     setCampaignData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -156,6 +162,11 @@ export default function CreateCampaignForm() {
         setError('WhatsApp template is required');
         return;
       }
+      setStep('automation');
+      return;
+    }
+
+    if (step === 'automation') {
       setStep('contacts');
       return;
     }
@@ -173,8 +184,11 @@ export default function CreateCampaignForm() {
       // Create campaign and send webhook to n8n
       const requestData = {
         name: campaignData.name,
+        description: campaignData.description,
         template_name: campaignData.template_name,
         template_id: templateId || campaignData.template_name,
+        prompt_id: campaignData.prompt_id || null,
+        auto_reply: campaignData.auto_reply || false,
         contacts: contacts.map(contact => ({
           name: contact.name,
           phone_number: contact.phone_number,
@@ -233,8 +247,10 @@ export default function CreateCampaignForm() {
   };
 
   const goBack = () => {
-    if (step === 'contacts') {
+    if (step === 'automation') {
       setStep('details');
+    } else if (step === 'contacts') {
+      setStep('automation');
     } else if (step === 'review') {
       setStep('contacts');
     } else {
@@ -276,6 +292,7 @@ export default function CreateCampaignForm() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
             {step === 'details' && 'Campaign Details'}
+            {step === 'automation' && 'Automation Settings'}
             {step === 'contacts' && 'Import Contacts'}
             {step === 'review' && 'Review & Create'}
           </h1>
@@ -287,7 +304,7 @@ export default function CreateCampaignForm() {
 
       {/* Progress Steps */}
       <div className="flex items-center justify-center mb-8">
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
           <div className={`flex items-center gap-2 ${step === 'details' ? 'text-primary' : 'text-muted-foreground'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
               step === 'details' ? 'bg-primary text-primary-foreground' : 'bg-muted'
@@ -296,21 +313,30 @@ export default function CreateCampaignForm() {
             </div>
             <span>Details</span>
           </div>
-          <div className="w-12 h-px bg-border" />
+          <div className="w-8 h-px bg-border" />
+          <div className={`flex items-center gap-2 ${step === 'automation' ? 'text-primary' : 'text-muted-foreground'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'automation' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+            }`}>
+              2
+            </div>
+            <span>Automation</span>
+          </div>
+          <div className="w-8 h-px bg-border" />
           <div className={`flex items-center gap-2 ${step === 'contacts' ? 'text-primary' : 'text-muted-foreground'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
               step === 'contacts' ? 'bg-primary text-primary-foreground' : 'bg-muted'
             }`}>
-              2
+              3
             </div>
             <span>Contacts</span>
           </div>
-          <div className="w-12 h-px bg-border" />
+          <div className="w-8 h-px bg-border" />
           <div className={`flex items-center gap-2 ${step === 'review' ? 'text-primary' : 'text-muted-foreground'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
               step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted'
             }`}>
-              3
+              4
             </div>
             <span>Review</span>
           </div>
@@ -361,6 +387,8 @@ export default function CreateCampaignForm() {
               />
             </div>
 
+
+
             <div>
               <label className="text-sm font-medium mb-2 block">Schedule</label>
               <div className="flex items-center gap-2">
@@ -376,6 +404,51 @@ export default function CreateCampaignForm() {
               <p className="text-xs text-muted-foreground mt-1">
                 Scheduling is currently disabled. Campaigns will be sent immediately.
               </p>
+            </div>
+          </div>
+        )}
+
+        {step === 'automation' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Bot className="h-5 w-5 text-primary" />
+              <h2 className="text-xl font-semibold">AI & Automation Settings</h2>
+            </div>
+
+            <div className="space-y-6">
+              <div className="relative z-40">
+                <PromptSelect
+                  selectedPromptId={campaignData.prompt_id}
+                  onPromptChange={(promptId: string, promptNameValue: string) => {
+                    handleInputChange('prompt_id', promptId || ''); // Ensure empty string if no prompt
+                    setPromptName(promptNameValue);
+                  }}
+                />
+              </div>
+
+              <div className="border-t pt-6">
+                <div className="mb-4">
+                  <h3 className="text-lg font-medium mb-2">Auto Reply Settings</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Configure automatic responses for incoming messages related to this campaign
+                  </p>
+                </div>
+                
+                <CustomToggle
+                  checked={campaignData.auto_reply || false}
+                  onCheckedChange={(checked) => handleInputChange('auto_reply', checked)}
+                  label="Enable Auto Reply"
+                />
+                
+                {campaignData.auto_reply && (
+                  <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Note:</strong> Auto reply requires an AI prompt to be selected. 
+                      Responses will be generated based on the selected prompt and incoming message context.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -518,6 +591,16 @@ export default function CreateCampaignForm() {
                       <span>{campaignData.description}</span>
                     </div>
                   )}
+                  {campaignData.prompt_id && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">AI Prompt:</span>
+                      <span>{promptName}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Auto Reply:</span>
+                    <span>{campaignData.auto_reply ? 'Enabled' : 'Disabled'}</span>
+                  </div>
                 </div>
               </div>
 

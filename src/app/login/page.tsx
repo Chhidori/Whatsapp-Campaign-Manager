@@ -1,34 +1,65 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { MessageSquare, Eye, EyeOff, Loader2 } from 'lucide-react';
 
-export default function LoginForm() {
+export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const { signIn } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/');
+    }
+  }, [user, authLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error } = await signIn(email, password);
-    
-    if (error) {
-      setError(error.message || 'Failed to sign in');
+    try {
+      const { error } = await signIn(email, password);
+      
+      if (error) {
+        setError(error.message || 'Failed to sign in');
+        setLoading(false);
+      } else {
+        // Don't set loading to false here, let useEffect handle redirect
+        // Wait a bit for auth state to update
+        setTimeout(() => {
+          router.replace('/');
+        }, 100);
+      }
+    } catch {
+      setError('An unexpected error occurred');
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
+
+  // Show loading while checking auth state
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
@@ -111,6 +142,11 @@ export default function LoginForm() {
             )}
           </Button>
         </form>
+
+        {/* Development helper */}
+        <div className="text-center text-sm text-muted-foreground">
+          <p>Need help? Contact your administrator</p>
+        </div>
       </div>
     </div>
   );

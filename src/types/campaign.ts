@@ -6,6 +6,8 @@ export interface Campaign {
   template_language: string;
   scheduled_at?: string;
   status: 'draft' | 'queued' | 'running' | 'paused' | 'done';
+  prompt_id?: string;
+  auto_reply?: boolean;
   created_date: string;
   updated_date: string;
 }
@@ -50,6 +52,8 @@ export interface CreateCampaignData {
   template_name: string;
   template_language: string;
   scheduled_at: string;
+  prompt_id?: string;
+  auto_reply?: boolean;
 }
 
 export interface ImportContact {

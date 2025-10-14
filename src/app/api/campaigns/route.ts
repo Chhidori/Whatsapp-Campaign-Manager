@@ -11,8 +11,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log('Request body received:', JSON.stringify(body, null, 2));
     
-    const { name, description, template_name, template_id, contacts, scheduled_at } = body;
-    console.log('Extracted data:', { name, description, template_name, template_id, scheduled_at, contactCount: contacts?.length });
+    const { name, description, template_name, template_id, contacts, scheduled_at, prompt_id, auto_reply } = body;
+    console.log('Extracted data:', { name, description, template_name, template_id, scheduled_at, prompt_id, auto_reply, contactCount: contacts?.length });
 
     // Step 1: Insert campaign into database
     const campaignInsertData = {
@@ -21,7 +21,9 @@ export async function POST(request: NextRequest) {
       template_name,
       status: 'draft', // Changed from 'active' to 'draft' to match database constraint
       created_date: new Date().toISOString(),
-      ...(scheduled_at && { scheduled_at }) // Only include scheduled_at if provided
+      ...(scheduled_at && { scheduled_at }), // Only include scheduled_at if provided
+      ...(prompt_id && prompt_id !== '' && { prompt_id }), // Only include prompt_id if provided and not empty
+      auto_reply: auto_reply || false // Default to false if not provided
     };
     
     console.log('Inserting campaign with data:', campaignInsertData);

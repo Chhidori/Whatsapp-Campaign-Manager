@@ -12,7 +12,8 @@ import {
   ChevronRight,
   User,
   LogOut,
-  MessageCircle
+  MessageCircle,
+  Bot
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,12 @@ const navigation = [
     href: '/messages',
     icon: MessageCircle,
     description: 'View message history'
+  },
+  {
+    name: 'Prompts',
+    href: '/prompts',
+    icon: Bot,
+    description: 'Manage GPT prompts'
   }
 ];
 

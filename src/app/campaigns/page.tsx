@@ -13,11 +13,13 @@ import {
 import { Send, Plus, Calendar } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Campaign } from '@/types/campaign';
+import CustomToggle from '@/components/ui/custom-toggle';
 
 export default function CampaignsPage() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingAutoReply, setUpdatingAutoReply] = useState<string | null>(null);
 
   useEffect(() => {
     loadCampaigns();
@@ -51,6 +53,37 @@ export default function CampaignsPage() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const handleAutoReplyToggle = async (campaignId: string, currentValue: boolean) => {
+    setUpdatingAutoReply(campaignId);
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/auto-reply`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ auto_reply: !currentValue }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update auto reply');
+      }
+
+      // Update the local state
+      setCampaigns(prev => 
+        prev.map(campaign => 
+          campaign.id === campaignId 
+            ? { ...campaign, auto_reply: !currentValue }
+            : campaign
+        )
+      );
+    } catch (error) {
+      console.error('Error updating auto reply:', error);
+      alert('Failed to update auto reply setting');
+    } finally {
+      setUpdatingAutoReply(null);
+    }
   };
 
 
@@ -101,6 +134,7 @@ export default function CampaignsPage() {
               <TableRow>
                 <TableHead>Campaign Name</TableHead>
                 <TableHead>Template</TableHead>
+                <TableHead>Auto Reply</TableHead>
                 <TableHead>Scheduled</TableHead>
                 <TableHead>Created</TableHead>
               </TableRow>
@@ -118,6 +152,16 @@ export default function CampaignsPage() {
                   </TableCell>
                   <TableCell>
                     <span className="font-medium">{campaign.template_name}</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center">
+                      <CustomToggle
+                        checked={campaign.auto_reply || false}
+                        onCheckedChange={() => handleAutoReplyToggle(campaign.id, campaign.auto_reply || false)}
+                        disabled={updatingAutoReply === campaign.id}
+                        label={updatingAutoReply === campaign.id ? 'Updating...' : ''}
+                      />
+                    </div>
                   </TableCell>
                   <TableCell>
                     {campaign.scheduled_at ? (

@@ -1,12 +1,24 @@
 'use client';
 
 import { useAuth } from '@/contexts/AuthContext';
-import LoginForm from './LoginForm';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import { Loader2 } from 'lucide-react';
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    // If not loading and no user, redirect to login after a short delay
+    if (!loading && !user) {
+      const timer = setTimeout(() => {
+        router.replace('/login');
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, user, router]);
 
   if (loading) {
     return (
@@ -20,7 +32,8 @@ export default function AuthWrapper({ children }: { children: React.ReactNode })
   }
 
   if (!user) {
-    return <LoginForm />;
+    // Return null while redirecting, let the redirect happen
+    return null;
   }
 
   return (

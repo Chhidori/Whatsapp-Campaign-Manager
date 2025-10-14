@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { WhatsAppTemplate } from '@/types/whatsapp';
-import { extractPlaceholders, getStatusBadgeVariant } from '@/lib/whatsapp-api';
+import { getStatusBadgeVariant } from '@/lib/whatsapp-api';
 
 // Real WhatsApp templates data from API response
 const apiResponseData = [
@@ -93,7 +93,7 @@ export default function TemplateSelect({ selectedTemplate, onTemplateChange }: T
     loadTemplates();
   }, []);
 
-  const selectedTemplateData = templates.find(t => t.name === selectedTemplate);
+  // const selectedTemplateData = templates.find(t => t.name === selectedTemplate);
 
   const handleTemplateSelect = (templateName: string) => {
     const template = templates.find(t => t.name === templateName);
@@ -130,74 +130,7 @@ export default function TemplateSelect({ selectedTemplate, onTemplateChange }: T
         </Select>
       </div>
 
-      {/* Template Preview */}
-      {selectedTemplateData && (
-        <div className="border rounded-lg p-4 bg-muted/30">
-          <h3 className="font-medium mb-2">Template Preview</h3>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Name:</span>
-              <span className="font-medium">{selectedTemplateData.name}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Language:</span>
-              <span>{selectedTemplateData.language}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Category:</span>
-              <Badge variant="outline" className="h-5">
-                {selectedTemplateData.category}
-              </Badge>
-            </div>
-            
-            {/* Template Content */}
-            <div className="mt-3">
-              <span className="text-sm text-muted-foreground">Message:</span>
-              <div className="mt-1 p-3 bg-white border rounded text-sm">
-                {selectedTemplateData.components.map((component, index) => {
-                  if (component.type === 'HEADER' && component.text) {
-                    return (
-                      <div key={index} className="font-semibold text-sm mb-2 border-b pb-1">
-                        {component.text}
-                      </div>
-                    );
-                  } else if (component.type === 'BODY') {
-                    return (
-                      <div key={index} className="whitespace-pre-line">
-                        {component.text}
-                      </div>
-                    );
-                  } else if (component.type === 'FOOTER' && component.text) {
-                    return (
-                      <div key={index} className="text-xs text-muted-foreground mt-2 pt-1 border-t">
-                        {component.text}
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
-              </div>
-            </div>
-
-            {/* Placeholders */}
-            {(() => {
-              const placeholders = extractPlaceholders(selectedTemplateData);
-              return placeholders.length > 0 && (
-                <div className="mt-2">
-                  <span className="text-sm text-muted-foreground">Placeholders:</span>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {placeholders.map((placeholder, index) => (
-                      <Badge key={index} variant="secondary" className="text-xs">
-                        {placeholder}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
+      {/* Template Preview - Hidden as requested */}
     </div>
   );
 }
