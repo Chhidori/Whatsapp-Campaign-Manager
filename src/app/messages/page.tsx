@@ -75,6 +75,36 @@ export default function MessagesPage() {
     }
   };
 
+  // Silent fetch for contacts - no loading state
+  const fetchContactsSilent = useCallback(async (page: number) => {
+    try {
+      const response = await fetch(`/api/contacts?page=${page}&limit=${contactsPerPage}`);
+      const data: ContactsResponse = await response.json();
+      
+      if (data.contacts) {
+        setContacts(prevContacts => {
+          // Compare the new contacts with previous ones
+          const contactsChanged = JSON.stringify(data.contacts) !== JSON.stringify(prevContacts);
+          return contactsChanged ? data.contacts : prevContacts;
+        });
+        setTotalPages(data.totalPages);
+        setTotalCount(data.totalCount);
+      }
+    } catch (error) {
+      console.error('Error fetching contacts silently:', error);
+      // Don't clear contacts on error during silent fetch
+    }
+  }, [contactsPerPage]);
+
+  // Set up polling for contacts
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      fetchContactsSilent(currentPage);
+    }, 10000); // Poll every 10 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [currentPage, fetchContactsSilent]);
+
   const handleContactSelect = (contact: ContactWithHistory) => {
     setSelectedContact(contact);
     // Clear previous messages immediately to show loading state

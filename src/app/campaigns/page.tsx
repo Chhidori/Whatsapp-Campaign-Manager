@@ -14,16 +14,20 @@ import { Send, Plus, Calendar } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Campaign } from '@/types/campaign';
 import CustomToggle from '@/components/ui/custom-toggle';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function CampaignsPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingAutoReply, setUpdatingAutoReply] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCampaigns();
-  }, []);
+    if (!authLoading && user) {
+      loadCampaigns();
+    }
+  }, [authLoading, user]);
 
   const loadCampaigns = async () => {
     setLoading(true);
