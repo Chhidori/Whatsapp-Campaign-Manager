@@ -151,6 +151,19 @@ export default function MessagesPage() {
             loading={messagesLoading}
             onMessageSent={() => fetchMessages(selectedContact.lead_id)}
             onSilentRefresh={() => fetchMessagesSilent(selectedContact.lead_id)}
+            unreadCount={selectedContact.unread_count || 0}
+            onMessagesRead={() => {
+              // Update the selected contact's unread count
+              setSelectedContact(prev => prev ? { ...prev, unread_count: 0 } : null);
+              // Update the contact in the contacts list
+              setContacts(prevContacts => 
+                prevContacts.map(contact => 
+                  contact.lead_id === selectedContact.lead_id 
+                    ? { ...contact, unread_count: 0 }
+                    : contact
+                )
+              );
+            }}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">

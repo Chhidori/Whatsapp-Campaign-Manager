@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ContactWithHistory, MessageHistory } from '@/types/campaign';
+import { SquareCheckBig, Loader2 } from 'lucide-react';
 
 interface MessageViewProps {
   contact: ContactWithHistory;
@@ -9,6 +10,8 @@ interface MessageViewProps {
   loading: boolean;
   onMessageSent?: () => void; // Callback to refresh messages after sending
   onSilentRefresh?: () => void; // Callback for silent refresh (no loading state)
+  unreadCount?: number;
+  onMessagesRead?: () => void; // Callback when messages are marked as read
 }
 
 const formatMessageTime = (date: string) => {
@@ -121,10 +124,12 @@ const getStatusText = (status: string) => {
   }
 };
 
-export default function MessageView({ contact, messages, loading, onMessageSent, onSilentRefresh }: MessageViewProps) {
+export default function MessageView({ contact, messages, loading, onMessageSent, onSilentRefresh, unreadCount = 0, onMessagesRead }: MessageViewProps) {
   const [messageText, setMessageText] = useState('');
   const [sending, setSending] = useState(false);
   const [lastMessageCount, setLastMessageCount] = useState(0);
+  const [markingAsRead, setMarkingAsRead] = useState(false);
+  const [localUnreadCount, setLocalUnreadCount] = useState(unreadCount);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -141,10 +146,11 @@ export default function MessageView({ contact, messages, loading, onMessageSent,
     }
   };
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change and sync unread count
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+    setLocalUnreadCount(unreadCount);
+  }, [messages, unreadCount]);
 
   // Scroll to bottom when component first loads or contact changes
   useEffect(() => {
@@ -333,6 +339,60 @@ export default function MessageView({ contact, messages, loading, onMessageSent,
                 </h2>
                 <p className="text-sm text-gray-500">Lead ID: {contact.lead_id}</p>
               </div>
+              <button
+                onClick={async () => {
+                  if (localUnreadCount === 0) return;
+                  setMarkingAsRead(true);
+                  try {
+                    const unreadMessageIds = messages
+                      .filter(msg => !msg.is_read && msg.message_type === 'Incoming')
+                      .map(msg => msg.id);
+
+                    if (unreadMessageIds.length === 0) return;
+
+                    const response = await fetch(`/api/messages/${contact.lead_id}/read`, {
+                      method: 'PUT',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        messageIds: unreadMessageIds
+                      }),
+                    });
+
+                    if (response.ok) {
+                      setLocalUnreadCount(0);
+                      if (onMessagesRead) {
+                        onMessagesRead();
+                      }
+                      if (onSilentRefresh) {
+                        onSilentRefresh();
+                      } else if (onMessageSent) {
+                        onMessageSent();
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error marking messages as read:', error);
+                  } finally {
+                    setMarkingAsRead(false);
+                  }
+                }}
+                disabled={localUnreadCount === 0 || markingAsRead}
+                title={markingAsRead 
+                  ? 'Marking messages as read...' 
+                  : localUnreadCount === 0 
+                    ? 'All messages are read' 
+                    : `Mark ${localUnreadCount} message${localUnreadCount === 1 ? '' : 's'} as read`}
+                className={`ml-4 p-1.5 rounded-lg ${
+                  localUnreadCount === 0
+                    ? 'bg-gray-100 text-gray-400'
+                    : 'hover:bg-gray-100 text-gray-900'
+                } transition-colors duration-200`}
+              >
+                {markingAsRead 
+                  ? <Loader2 className="w-5 h-5 animate-spin" /> 
+                  : <SquareCheckBig className="w-5 h-5" />}
+              </button>
               {/* Removed polling indicator to avoid UI distraction */}
             </div>
           </div>
