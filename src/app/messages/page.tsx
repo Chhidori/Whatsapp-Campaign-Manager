@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ContactWithHistory, MessageHistory } from '@/types/campaign';
+import { ContactWithHistory, MessageHistory, CustomSettings } from '@/types/campaign';
 import ContactList from '@/components/messages/ContactList';
 import MessageView from '@/components/messages/MessageView';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ContactsResponse {
   contacts: ContactWithHistory[];
@@ -13,17 +14,36 @@ interface ContactsResponse {
 }
 
 export default function MessagesPage() {
+  const { user } = useAuth();
+  
   const [contacts, setContacts] = useState<ContactWithHistory[]>([]);
   const [selectedContact, setSelectedContact] = useState<ContactWithHistory | null>(null);
   const [messages, setMessages] = useState<MessageHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [customSettings, setCustomSettings] = useState<CustomSettings | null>(null);
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [contactsPerPage] = useState(20); // Show 20 contacts per page
+
+  // Fetch user's custom settings
+  const fetchCustomSettings = useCallback(async () => {
+    if (!user?.email) return;
+    
+    try {
+      const response = await fetch(`/api/user-schema/custom-settings?username=${encodeURIComponent(user.email)}`);
+      const data = await response.json();
+      
+      if (data.custom_settings) {
+        setCustomSettings(data.custom_settings);
+      }
+    } catch (error) {
+      console.error('Error fetching custom settings:', error);
+    }
+  }, [user?.email]);
 
   const fetchContacts = useCallback(async (page: number) => {
     setLoading(true);
@@ -46,6 +66,23 @@ export default function MessagesPage() {
   useEffect(() => {
     fetchContacts(currentPage);
   }, [currentPage, fetchContacts]);
+
+  useEffect(() => {
+    fetchCustomSettings();
+  }, [fetchCustomSettings]);
+
+  // Add visibility change listener to pause/resume polling when tab is not active
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && selectedContact) {
+        // When tab becomes visible again, silently refresh messages
+        fetchMessagesSilent(selectedContact.lead_id);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [selectedContact]);
 
   const fetchMessages = async (leadId: string) => {
     setMessagesLoading(true);
@@ -75,7 +112,7 @@ export default function MessagesPage() {
     }
   };
 
-  // Silent fetch for contacts - no loading state
+  // Silent fetch for contacts - no loading state with improved comparison
   const fetchContactsSilent = useCallback(async (page: number) => {
     try {
       const response = await fetch(`/api/contacts?page=${page}&limit=${contactsPerPage}`);
@@ -83,9 +120,24 @@ export default function MessagesPage() {
       
       if (data.contacts) {
         setContacts(prevContacts => {
-          // Compare the new contacts with previous ones
-          const contactsChanged = JSON.stringify(data.contacts) !== JSON.stringify(prevContacts);
-          return contactsChanged ? data.contacts : prevContacts;
+          // More efficient comparison by checking length and key properties
+          if (prevContacts.length !== data.contacts.length) {
+            return data.contacts;
+          }
+          
+          // Check if any contact has changed by comparing key properties
+          const hasChanges = data.contacts.some((newContact, index) => {
+            const prevContact = prevContacts[index];
+            return !prevContact ||
+                   prevContact.lead_id !== newContact.lead_id ||
+                   prevContact.name !== newContact.name ||
+                   prevContact.lead_status !== newContact.lead_status ||
+                   prevContact.unread_count !== newContact.unread_count ||
+                   prevContact.last_message?.created_date !== newContact.last_message?.created_date ||
+                   prevContact.last_message?.message_text !== newContact.last_message?.message_text;
+          });
+          
+          return hasChanges ? data.contacts : prevContacts;
         });
         setTotalPages(data.totalPages);
         setTotalCount(data.totalCount);
@@ -96,16 +148,24 @@ export default function MessagesPage() {
     }
   }, [contactsPerPage]);
 
-  // Set up polling for contacts
+  // Set up polling for contacts with visibility check
   useEffect(() => {
     const pollInterval = setInterval(() => {
-      fetchContactsSilent(currentPage);
-    }, 10000); // Poll every 10 seconds
+      // Only poll when document is visible to avoid unnecessary API calls
+      if (!document.hidden) {
+        fetchContactsSilent(currentPage);
+      }
+    }, 15000); // Reduced frequency to 15 seconds to avoid too many requests
 
     return () => clearInterval(pollInterval);
   }, [currentPage, fetchContactsSilent]);
 
   const handleContactSelect = (contact: ContactWithHistory) => {
+    // Don't reload messages if selecting the same contact
+    if (selectedContact?.lead_id === contact.lead_id) {
+      return;
+    }
+    
     setSelectedContact(contact);
     // Clear previous messages immediately to show loading state
     setMessages([]);
@@ -152,8 +212,9 @@ export default function MessagesPage() {
             onMessageSent={() => fetchMessages(selectedContact.lead_id)}
             onSilentRefresh={() => fetchMessagesSilent(selectedContact.lead_id)}
             unreadCount={selectedContact.unread_count || 0}
+            customSettings={customSettings}
             onMessagesRead={() => {
-              // Update the selected contact's unread count
+              // Update the selected contact's unread count immediately for responsive UI
               setSelectedContact(prev => prev ? { ...prev, unread_count: 0 } : null);
               // Update the contact in the contacts list
               setContacts(prevContacts => 
@@ -163,6 +224,26 @@ export default function MessagesPage() {
                     : contact
                 )
               );
+            }}
+            onContactUpdate={(updatedContact) => {
+              // Update the selected contact
+              setSelectedContact(updatedContact);
+              // Update the contact in the contacts list only if it has actually changed
+              setContacts(prevContacts => {
+                const updatedContacts = prevContacts.map(contact => 
+                  contact.lead_id === updatedContact.lead_id 
+                    ? updatedContact
+                    : contact
+                );
+                
+                // Only update if the contact actually changed
+                const existingContact = prevContacts.find(c => c.lead_id === updatedContact.lead_id);
+                if (existingContact && existingContact.lead_status === updatedContact.lead_status) {
+                  return prevContacts;
+                }
+                
+                return updatedContacts;
+              });
             }}
           />
         ) : (

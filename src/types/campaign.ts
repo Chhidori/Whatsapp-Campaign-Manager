@@ -23,6 +23,7 @@ export interface Contact {
 export interface WAContact {
   name: string;
   lead_id: string;
+  lead_status?: string;
 }
 
 // Message History from wa_message_history table
@@ -59,4 +60,33 @@ export interface CreateCampaignData {
 export interface ImportContact {
   name?: string;
   phone_number: string;
+}
+
+// Lead Status Configuration Types
+export interface LeadStatusOption {
+  value: string;
+  label: string;
+  order: number;
+}
+
+export interface LeadStatusConfig {
+  type: 'select';
+  options: LeadStatusOption[];
+  default_value: string;
+  required: boolean;
+  allow_custom: boolean;
+}
+
+export interface FieldConfigurations {
+  lead_status: LeadStatusConfig;
+}
+
+export interface CustomSettings {
+  field_configurations: FieldConfigurations;
+}
+
+export interface UserSchemaInfo {
+  username: string;
+  schema_name: string;
+  custom_settings?: CustomSettings;
 }

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ContactWithHistory, MessageHistory } from '@/types/campaign';
+import { ContactWithHistory, MessageHistory, CustomSettings } from '@/types/campaign';
 import { SquareCheckBig, Loader2 } from 'lucide-react';
+import LeadStatusRibbon from './LeadStatusRibbon';
 
 interface MessageViewProps {
   contact: ContactWithHistory;
@@ -12,6 +13,8 @@ interface MessageViewProps {
   onSilentRefresh?: () => void; // Callback for silent refresh (no loading state)
   unreadCount?: number;
   onMessagesRead?: () => void; // Callback when messages are marked as read
+  customSettings?: CustomSettings | null;
+  onContactUpdate?: (contact: ContactWithHistory) => void; // Callback when contact is updated
 }
 
 const formatMessageTime = (date: string) => {
@@ -124,14 +127,19 @@ const getStatusText = (status: string) => {
   }
 };
 
-export default function MessageView({ contact, messages, loading, onMessageSent, onSilentRefresh, unreadCount = 0, onMessagesRead }: MessageViewProps) {
+export default function MessageView({ contact, messages, loading, onMessageSent, onSilentRefresh, unreadCount = 0, onMessagesRead, customSettings, onContactUpdate }: MessageViewProps) {
   const [messageText, setMessageText] = useState('');
   const [sending, setSending] = useState(false);
-  const [lastMessageCount, setLastMessageCount] = useState(0);
   const [markingAsRead, setMarkingAsRead] = useState(false);
   const [localUnreadCount, setLocalUnreadCount] = useState(unreadCount);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const currentContactRef = useRef(contact);
+  
+  // Update ref when contact changes
+  useEffect(() => {
+    currentContactRef.current = contact;
+  }, [contact]);
 
   // Message direction detection using message_type field
   const getMessageDirection = (message: MessageHistory) => {
@@ -160,52 +168,67 @@ export default function MessageView({ contact, messages, loading, onMessageSent,
     }
   }, [loading, contact?.lead_id, messages.length]);
 
-  // Polling for new incoming messages
+  // Polling for new incoming messages with improved logic
   useEffect(() => {
     if (!contact?.lead_id || (!onMessageSent && !onSilentRefresh)) return;
 
-    // Update message count when messages change
-    setLastMessageCount(messages.length);
+    let isPolling = false;
 
     const checkForNewMessages = async () => {
+      // Prevent overlapping polls
+      if (isPolling) return;
+      
       // Don't poll when tab is not active or when sending a message
       if (document.hidden || sending) return;
       
-      console.log('Checking for new messages...', { leadId: contact.lead_id });
+      isPolling = true;
       
       try {
-        const response = await fetch(`/api/messages/${contact.lead_id}`);
+        const currentContact = currentContactRef.current;
+        if (!currentContact?.lead_id) return;
+        
+        const response = await fetch(`/api/messages/${currentContact.lead_id}`);
         if (response.ok) {
           const newMessages = await response.json();
           
-          // Check if there are new messages
-          if (newMessages.length > lastMessageCount && lastMessageCount > 0) {
-            console.log(`New messages detected: ${newMessages.length - lastMessageCount} new message(s)`);
+          // Check if there are new messages (more robust comparison)
+          const currentMessageCount = messages.length;
+          if (newMessages.length > currentMessageCount && currentMessageCount > 0) {
+            console.log(`New messages detected: ${newMessages.length - currentMessageCount} new message(s)`);
             
-            // Show browser notification for new messages
-            if (Notification.permission === 'granted') {
-              const latestMessage = newMessages[newMessages.length - 1];
-              if (latestMessage.message_type === 'Incoming') {
-                new Notification(`New message from ${contact.name}`, {
-                  body: latestMessage.message_text.substring(0, 100) + (latestMessage.message_text.length > 100 ? '...' : ''),
+            // Check if the latest message is actually new (not just a status update)
+            const latestNewMessage = newMessages[newMessages.length - 1];
+            const latestCurrentMessage = messages[messages.length - 1];
+            
+            const isActuallyNewMessage = !latestCurrentMessage || 
+              latestNewMessage.id !== latestCurrentMessage.id ||
+              latestNewMessage.created_date !== latestCurrentMessage.created_date;
+            
+            if (isActuallyNewMessage) {
+              // Show browser notification for new incoming messages
+              if (Notification.permission === 'granted' && latestNewMessage.message_type === 'Incoming') {
+                new Notification(`New message from ${currentContact.name}`, {
+                  body: latestNewMessage.message_text.substring(0, 100) + (latestNewMessage.message_text.length > 100 ? '...' : ''),
                   icon: '/favicon.ico',
-                  tag: `message-${contact.lead_id}` // Prevent duplicate notifications
+                  tag: `message-${currentContact.lead_id}-${latestNewMessage.id}` // Prevent duplicate notifications
                 });
               }
-            }
-            
-            // Use silent refresh to avoid blinking effect
-            if (onSilentRefresh) {
-              onSilentRefresh();
-            } else if (onMessageSent) {
-              onMessageSent();
+              
+              // Use silent refresh to avoid blinking effect
+              if (onSilentRefresh) {
+                onSilentRefresh();
+              } else if (onMessageSent) {
+                onMessageSent();
+              }
             }
           }
           
-          setLastMessageCount(newMessages.length);
+
         }
       } catch (error) {
         console.error('Error checking for new messages:', error);
+      } finally {
+        isPolling = false;
       }
     };
 
@@ -218,14 +241,20 @@ export default function MessageView({ contact, messages, loading, onMessageSent,
       });
     }
 
-    // Set up polling every 10 seconds
-    const pollInterval = setInterval(checkForNewMessages, 10000);
 
-    // Also check immediately when component mounts
-    setTimeout(checkForNewMessages, 1000);
 
-    return () => clearInterval(pollInterval);
-  }, [contact?.lead_id, messages.length, lastMessageCount, onMessageSent, onSilentRefresh, sending, contact.name]);
+    // Set up polling every 12 seconds (slightly longer to reduce server load)
+    const pollTimer = setInterval(checkForNewMessages, 12000);
+
+    // Check immediately but with a small delay to avoid initial race conditions
+    const initialTimeout = setTimeout(checkForNewMessages, 2000);
+
+    return () => {
+      clearInterval(pollTimer);
+      clearTimeout(initialTimeout);
+      isPolling = false;
+    };
+  }, [contact?.lead_id, messages, onMessageSent, onSilentRefresh, sending, contact.name]);
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || sending) return;
@@ -337,62 +366,83 @@ export default function MessageView({ contact, messages, loading, onMessageSent,
                 <h2 className="text-lg font-semibold text-gray-900">
                   {contact.name || 'Unknown Contact'}
                 </h2>
-                <p className="text-sm text-gray-500">Lead ID: {contact.lead_id}</p>
               </div>
-              <button
-                onClick={async () => {
-                  if (localUnreadCount === 0) return;
-                  setMarkingAsRead(true);
-                  try {
-                    const unreadMessageIds = messages
-                      .filter(msg => !msg.is_read && msg.message_type === 'Incoming')
-                      .map(msg => msg.id);
-
-                    if (unreadMessageIds.length === 0) return;
-
-                    const response = await fetch(`/api/messages/${contact.lead_id}/read`, {
-                      method: 'PUT',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        messageIds: unreadMessageIds
-                      }),
-                    });
-
-                    if (response.ok) {
-                      setLocalUnreadCount(0);
-                      if (onMessagesRead) {
-                        onMessagesRead();
+              <div className="flex items-center gap-3">
+                {/* Lead Status Ribbon */}
+                {customSettings?.field_configurations?.lead_status && (
+                  <LeadStatusRibbon
+                    leadId={contact.lead_id}
+                    currentStatus={contact.lead_status}
+                    statusOptions={customSettings.field_configurations.lead_status.options}
+                    onStatusChange={(newStatus) => {
+                      // Update the contact object with new status
+                      const updatedContact = { ...contact, lead_status: newStatus };
+                      if (onContactUpdate) {
+                        onContactUpdate(updatedContact);
                       }
-                      if (onSilentRefresh) {
-                        onSilentRefresh();
-                      } else if (onMessageSent) {
-                        onMessageSent();
-                      }
-                    }
-                  } catch (error) {
-                    console.error('Error marking messages as read:', error);
-                  } finally {
-                    setMarkingAsRead(false);
-                  }
-                }}
-                disabled={localUnreadCount === 0 || markingAsRead}
-                title={markingAsRead 
-                  ? 'Marking messages as read...' 
-                  : localUnreadCount === 0 
-                    ? 'All messages are read' 
-                    : `Mark ${localUnreadCount} message${localUnreadCount === 1 ? '' : 's'} as read`}
-                className={`ml-4 p-1.5 rounded-lg ${
-                  localUnreadCount === 0
-                    ? 'bg-gray-100 text-gray-400'
-                    : 'hover:bg-gray-100 text-gray-900'
-                } transition-colors duration-200`}
-              >
-                {markingAsRead 
-                  ? <Loader2 className="w-5 h-5 animate-spin" /> 
-                  : <SquareCheckBig className="w-5 h-5" />}
-              </button>
+                    }}
+                  />
+                )}
+                
+                {localUnreadCount > 0 && (
+                  <div className="relative">
+                    <button
+                      onClick={async () => {
+                        if (localUnreadCount === 0) return;
+                        setMarkingAsRead(true);
+                        try {
+                          const unreadMessageIds = messages
+                            .filter(msg => !msg.is_read && msg.message_type === 'Incoming')
+                            .map(msg => msg.id);
+
+                          if (unreadMessageIds.length === 0) return;
+
+                          const response = await fetch(`/api/messages/${contact.lead_id}/read`, {
+                            method: 'PUT',
+                            headers: {
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                              messageIds: unreadMessageIds
+                            }),
+                          });
+
+                          if (response.ok) {
+                            setLocalUnreadCount(0);
+                            if (onMessagesRead) {
+                              onMessagesRead();
+                            }
+                            if (onSilentRefresh) {
+                              onSilentRefresh();
+                            } else if (onMessageSent) {
+                              onMessageSent();
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Error marking messages as read:', error);
+                        } finally {
+                          setMarkingAsRead(false);
+                        }
+                      }}
+                      disabled={markingAsRead}
+                      title={markingAsRead 
+                        ? 'Marking messages as read...' 
+                        : `Mark ${localUnreadCount} message${localUnreadCount === 1 ? '' : 's'} as read`}
+                      className="p-2 text-blue-600 hover:bg-blue-50 disabled:text-blue-400 disabled:bg-gray-50 rounded-md transition-colors duration-200"
+                    >
+                      {markingAsRead ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <SquareCheckBig className="w-5 h-5" />
+                      )}
+                    </button>
+                    {/* Unread count badge */}
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium shadow-sm">
+                      {localUnreadCount}
+                    </span>
+                  </div>
+                )}
+              </div>
               {/* Removed polling indicator to avoid UI distraction */}
             </div>
           </div>

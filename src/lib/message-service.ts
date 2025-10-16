@@ -44,6 +44,26 @@ export class MessageService {
         throw queryError;
       }
 
+      // Get lead_status for all contacts in one query
+      const leadIds = (contactSummaries || []).map((contact: { lead_id: string }) => contact.lead_id);
+      let leadStatusMap: Record<string, string> = {};
+      
+      if (leadIds.length > 0) {
+        const { data: contactsWithStatus, error: statusError } = await supabase
+          .from('wa_contacts')
+          .select('lead_id, lead_status')
+          .in('lead_id', leadIds);
+
+        if (!statusError && contactsWithStatus) {
+          leadStatusMap = contactsWithStatus.reduce((acc: Record<string, string>, contact: { lead_id: string; lead_status?: string }) => {
+            if (contact.lead_status) {
+              acc[contact.lead_id] = contact.lead_status;
+            }
+            return acc;
+          }, {});
+        }
+      }
+
       // Transform to ContactWithHistory format
       const contactsWithHistory: ContactWithHistory[] = (contactSummaries || []).map((contact: {
         owner_name: string;
@@ -54,6 +74,7 @@ export class MessageService {
       }) => ({
         name: contact.owner_name,
         lead_id: contact.lead_id,
+        lead_status: leadStatusMap[contact.lead_id],
         last_message: contact.recent_timestamp ? {
           id: `summary_${contact.lead_id}`,
           message_id: '',
