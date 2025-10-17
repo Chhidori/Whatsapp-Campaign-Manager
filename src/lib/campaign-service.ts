@@ -130,24 +130,24 @@ export class CampaignService {
     }
   }
 
-  // Validate phone number format (basic E.164 check)
+  // Validate phone number format (flexible - with or without + prefix)
   static validatePhoneNumber(phone: string): boolean {
-    // Basic E.164 format: +[country code][number] (7-15 digits total)
+    // Allow phone numbers with or without + prefix
+    // With +: +[country code][number] (7-15 digits total)
     const e164Regex = /^\+[1-9]\d{6,14}$/;
-    return e164Regex.test(phone);
+    // Without +: [country code][number] (7-15 digits, but must start with valid country code)
+    const numericRegex = /^[1-9]\d{6,14}$/;
+    
+    return e164Regex.test(phone) || numericRegex.test(phone);
   }
 
-  // Format phone number to E.164 if possible
+  // Format phone number - minimal cleaning, preserve + if present
   static formatPhoneNumber(phone: string): string {
-    // Remove all non-digits except +
-    let cleaned = phone.replace(/[^\d+]/g, '');
+    // Only remove spaces, dashes, brackets, and other formatting characters
+    // Keep digits and + symbol exactly as provided
+    const cleaned = phone.replace(/[\s\-\(\)\.\s]/g, '');
     
-    // If it doesn't start with +, assume it needs a + prefix
-    if (!cleaned.startsWith('+')) {
-      // You might want to add default country code logic here
-      cleaned = '+' + cleaned;
-    }
-    
+    // Return exactly as provided (with or without + prefix)
     return cleaned;
   }
 }

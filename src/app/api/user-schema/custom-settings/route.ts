@@ -18,17 +18,17 @@ const publicSupabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const username = searchParams.get('username');
+    const userId = searchParams.get('userId');
 
-    if (!username) {
-      return NextResponse.json({ error: 'Username is required' }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    // Query the user_schema table in public schema for custom_settings
+    // Query the user_schema table in public schema for custom_settings using auth_user_id
     const { data, error } = await publicSupabase
       .from('user_schema')
       .select('schema_name, custom_settings')
-      .eq('username', username)
+      .eq('auth_user_id', userId)
       .single();
 
     if (error) {
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
     // Return custom_settings or empty object as fallback
     return NextResponse.json({ 
-      username,
+      userId,
       schema_name: data.schema_name,
       custom_settings: data.custom_settings || {}
     });

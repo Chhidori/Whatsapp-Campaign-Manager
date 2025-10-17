@@ -259,7 +259,7 @@ export default function CreateCampaignForm() {
   };
 
   const downloadTemplate = () => {
-    const csvContent = 'Name,Phone Number\nJohn Doe,+1234567890\nJane Smith,+9876543210';
+    const csvContent = 'Name,Phone Number\nJohn Doe,1234567890\nJane Smith,9876543210\nAlice Johnson,+1122334455';
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

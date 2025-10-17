@@ -9,6 +9,19 @@ export async function POST(request: NextRequest) {
     // Create Supabase client for this API route
     const supabase = createSupabaseForApiRoute(request);
     
+    // Get the authenticated user's session to extract user ID
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return NextResponse.json({
+        error: 'User not authenticated',
+        details: authError?.message || 'No user session found'
+      }, { status: 401 });
+    }
+    
+    const authUserId = user.id;
+    console.log('Authenticated user ID for webhook:', authUserId);
+    
     const body = await request.json();
     console.log('Request body received:', JSON.stringify(body, null, 2));
     
@@ -139,7 +152,8 @@ export async function POST(request: NextRequest) {
       template_name,
       lead_id: contact.lead_id,
       template_id: template_id || '',
-      schema_name: userSchema
+      schema_name: userSchema,
+      auth_user_id: authUserId
     }));
 
     console.log('Sending webhook request to:', webhookUrl);

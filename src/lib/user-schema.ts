@@ -15,21 +15,21 @@ const publicSupabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
 });
 
 export interface UserSchemaInfo {
-  username: string;
+  userId: string;
   schema_name: string;
 }
 
 /**
- * Fetch user's schema from the user_schema table in public schema
+ * Fetch user's schema from the user_schema table in public schema using auth_user_id
  */
-export async function getUserSchema(username: string): Promise<string | null> {
+export async function getUserSchema(userId: string): Promise<string | null> {
   try {
     const { data, error } = await publicSupabase
       .from('user_schema')
       .select('schema_name')
-      .eq('username', username)
+      .eq('auth_user_id', userId)
       .single();
-
+    
     if (error) {
       console.error('Error fetching user schema:', error);
       return null;

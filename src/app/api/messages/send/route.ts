@@ -5,6 +5,23 @@ export async function POST(request: NextRequest) {
   try {
     console.log('=== INDIVIDUAL MESSAGE SEND STARTED ===');
     
+    // Import createSupabaseForApiRoute to get authenticated user
+    const { createSupabaseForApiRoute } = await import('@/lib/supabase');
+    const supabase = createSupabaseForApiRoute(request);
+    
+    // Get the authenticated user's session to extract user ID
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return NextResponse.json({
+        error: 'User not authenticated',
+        details: authError?.message || 'No user session found'
+      }, { status: 401 });
+    }
+    
+    const authUserId = user.id;
+    console.log('Authenticated user ID for message webhook:', authUserId);
+    
     const body = await request.json();
     console.log('Request body received:', JSON.stringify(body, null, 2));
     
@@ -38,7 +55,8 @@ export async function POST(request: NextRequest) {
       campaign_id: campaign_id || null, // Include campaign_id if available
       lead_id: lead_id,
       message_content: message_content, // This is the extra field - the message user typed
-      schema_name: userSchema
+      schema_name: userSchema,
+      auth_user_id: authUserId
       // Exclude template_id and template_name for individual messages
     };
 

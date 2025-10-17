@@ -31,10 +31,10 @@ export default function MessagesPage() {
 
   // Fetch user's custom settings
   const fetchCustomSettings = useCallback(async () => {
-    if (!user?.email) return;
+    if (!user?.id) return;
     
     try {
-      const response = await fetch(`/api/user-schema/custom-settings?username=${encodeURIComponent(user.email)}`);
+      const response = await fetch(`/api/user-schema/custom-settings?userId=${encodeURIComponent(user.id)}`);
       const data = await response.json();
       
       if (data.custom_settings) {
@@ -43,7 +43,7 @@ export default function MessagesPage() {
     } catch (error) {
       console.error('Error fetching custom settings:', error);
     }
-  }, [user?.email]);
+  }, [user?.id]);
 
   const fetchContacts = useCallback(async (page: number) => {
     setLoading(true);

@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
           
           if (!currentSchema) {
-            const userSchema = await getUserSchema(session.user.email);
+            const userSchema = await getUserSchema(session.user.id);
             if (userSchema) {
               setUserSchemaCookie(userSchema);
             } else {
@@ -144,8 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       try {
         // Handle schema cookie on auth state changes
-        if (session?.user?.email) {
-          const userSchema = await getUserSchema(session.user.email);
+        if (session?.user?.id) {
+          const userSchema = await getUserSchema(session.user.id);
           if (userSchema) {
             setUserSchemaCookie(userSchema);
           } else {
@@ -192,8 +192,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // After successful authentication, get user's schema and set cookie
-      if (data.user?.email) {
-        const userSchema = await getUserSchema(data.user.email);
+      if (data.user?.id) {
+        const userSchema = await getUserSchema(data.user.id);
         if (userSchema) {
           setUserSchemaCookie(userSchema);
         } else {
