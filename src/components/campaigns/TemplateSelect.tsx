@@ -12,61 +12,22 @@ import { Badge } from '@/components/ui/badge';
 import { WhatsAppTemplate } from '@/types/whatsapp';
 import { getStatusBadgeVariant } from '@/lib/whatsapp-api';
 
-// Real WhatsApp templates data from API response
-const apiResponseData = [
-  {
-    "data": [
-      {
-        "name": "hello_world",
-        "parameter_format": "POSITIONAL",
-        "components": [
-          {
-            "type": "HEADER",
-            "format": "TEXT",
-            "text": "Hello World"
-          },
-          {
-            "type": "BODY",
-            "text": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us."
-          },
-          {
-            "type": "FOOTER",
-            "text": "WhatsApp Business Platform sample message"
-          }
-        ],
-        "language": "en_US",
-        "status": "APPROVED",
-        "category": "UTILITY",
-        "id": "4049153811993333"
-      }
-    ],
-    "paging": {
-      "cursors": {
-        "before": "QVFIUzhlWGVEZAHpjRXFBbVI3LTFSZAnZAmOHJfSXZA6Vm9FN3hOU2ZADUGY1ZA0Njd2ZAXLWtWU2dXbTJLUy1IU1FpRm9URHBnX25iNGlrREpfUU1nRmdNUGp5QWR3",
-        "after": "QVFIUzFsZAVJTSDlkVlQ2UFFYS3hxWUYtSEx3OURmRW0xRTAxUmhyampiWmI2RTdLTTcxYWpucnlTUHlwYVNrdk5QXzBxcXpOT3dmNjA1NXJhbDF0YXJLNEtR"
-      }
-    }
-  }
-];
-
-// Transform API data to WhatsAppTemplate format
-const realTemplates: WhatsAppTemplate[] = apiResponseData[0].data.map(template => ({
-  id: template.id,
-  name: template.name,
-  language: template.language,
-  status: template.status as 'APPROVED' | 'PENDING' | 'REJECTED',
-  category: template.category as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION',
-  components: template.components.map(comp => {
-    const component = {
-      type: comp.type as 'HEADER' | 'BODY' | 'FOOTER',
-      text: comp.text,
-      format: ('format' in comp && comp.format) ? comp.format as 'TEXT' : undefined
-    };
-    
-    return component;
-  }),
-  updated_time: new Date().toISOString()
-}));
+// Interface for the API response
+interface ApiTemplateResponse {
+  id: string;
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+  components: Array<{
+    type: string;
+    text?: string;
+    format?: string;
+    example?: Record<string, unknown>;
+  }>;
+  sub_category?: string;
+  parameter_format?: string;
+}
 
 interface TemplateSelectProps {
   selectedTemplate: string;
@@ -78,16 +39,48 @@ export default function TemplateSelect({ selectedTemplate, onTemplateChange }: T
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load templates (using mock data for now)
+    // Load templates from API
     const loadTemplates = async () => {
       setLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Filter only approved templates for campaign use
-      const approvedTemplates = realTemplates.filter(t => t.status === 'APPROVED');
-      setTemplates(approvedTemplates);
-      setLoading(false);
+      try {
+        const webhookUrl = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://n8n.funbook.org.in/webhook/templates';
+        
+        const response = await fetch(webhookUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch templates: ${response.status} ${response.statusText}`);
+        }
+
+        const responseData = await response.json();
+        
+        // Extract templates from the response (data is directly available)
+        const templatesData = responseData.data || [];
+        
+        // Map the API response to your template structure
+        const fetchedTemplates: WhatsAppTemplate[] = templatesData.map((item: ApiTemplateResponse) => ({
+          id: item.id,
+          name: item.name,
+          language: item.language || 'en_US',
+          status: item.status as 'APPROVED' | 'PENDING' | 'REJECTED',
+          category: item.category as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION',
+          components: item.components || [],
+          updated_time: new Date().toISOString() // API doesn't provide updated_time, using current time
+        }));
+        
+        // Filter only approved templates for campaign use
+        const approvedTemplates = fetchedTemplates.filter((t: WhatsAppTemplate) => t.status === 'APPROVED');
+        setTemplates(approvedTemplates);
+      } catch (error) {
+        console.error('Error loading templates:', error);
+        setTemplates([]); // Set empty array on error
+      } finally {
+        setLoading(false);
+      }
     };
 
     loadTemplates();

@@ -27,6 +27,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 
 import { WhatsAppTemplate } from '@/types/whatsapp';
 import { 
@@ -34,55 +41,22 @@ import {
   getStatusBadgeVariant 
 } from '@/lib/whatsapp-api';
 
-// Real WhatsApp templates data from API response
-const apiResponseData = [
-  {
-    "data": [
-      {
-        "name": "hello_world",
-        "parameter_format": "POSITIONAL",
-        "components": [
-          {
-            "type": "HEADER",
-            "format": "TEXT",
-            "text": "Hello World"
-          },
-          {
-            "type": "BODY",
-            "text": "Welcome and congratulations!! This message demonstrates your ability to send a WhatsApp message notification from the Cloud API, hosted by Meta. Thank you for taking the time to test with us."
-          },
-          {
-            "type": "FOOTER",
-            "text": "WhatsApp Business Platform sample message"
-          }
-        ],
-        "language": "en_US",
-        "status": "APPROVED",
-        "category": "UTILITY",
-        "id": "4049153811993333"
-      }
-    ]
-  }
-];
-
-// Transform API data to WhatsAppTemplate format for the main templates page
-const realTemplates: WhatsAppTemplate[] = apiResponseData[0].data.map(template => ({
-  id: template.id,
-  name: template.name,
-  language: template.language,
-  status: template.status as 'APPROVED' | 'PENDING' | 'REJECTED',
-  category: template.category as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION',
-  components: template.components.map(comp => {
-    const component = {
-      type: comp.type as 'HEADER' | 'BODY' | 'FOOTER',
-      text: comp.text,
-      format: ('format' in comp && comp.format) ? comp.format as 'TEXT' : undefined
-    };
-    
-    return component;
-  }),
-  updated_time: new Date().toISOString()
-}));
+// Interface for the API response
+interface ApiTemplateResponse {
+  id: string;
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+  components: Array<{
+    type: string;
+    text?: string;
+    format?: string;
+    example?: Record<string, unknown>;
+  }>;
+  sub_category?: string;
+  parameter_format?: string;
+}
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
@@ -92,22 +66,61 @@ export default function TemplatesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  // For demo purposes, we'll use mock data
-  // In production, you'd initialize the API service with real credentials
+  // Helper function to get template body text
+  const getTemplateBodyText = (template: WhatsAppTemplate): string => {
+    const bodyComponent = template.components.find(comp => comp.type === 'BODY');
+    return bodyComponent?.text || 'No body text available';
+  };
+
+  // Helper function to get template header text
+  const getTemplateHeaderText = (template: WhatsAppTemplate): string => {
+    const headerComponent = template.components.find(comp => comp.type === 'HEADER');
+    return headerComponent?.text || '';
+  };
+
+  // Helper function to get template footer text
+  const getTemplateFooterText = (template: WhatsAppTemplate): string => {
+    const footerComponent = template.components.find(comp => comp.type === 'FOOTER');
+    return footerComponent?.text || '';
+  };
+
   const loadTemplates = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const webhookUrl = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://n8n.funbook.org.in/webhook/templates';
       
-      // In production, use:
-      // const apiService = new WhatsAppAPIService(accessToken, businessAccountId);
-      // const fetchedTemplates = await apiService.fetchTemplates();
+      const response = await fetch(webhookUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch templates: ${response.status} ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
       
-      setTemplates(realTemplates);
+      // Extract templates from the response (data is directly available)
+      const templatesData = responseData.data || [];
+      
+      // Map the API response to your template structure
+      const fetchedTemplates: WhatsAppTemplate[] = templatesData.map((item: ApiTemplateResponse) => ({
+        id: item.id,
+        name: item.name,
+        language: item.language || 'en_US',
+        status: item.status as 'APPROVED' | 'PENDING' | 'REJECTED',
+        category: item.category as 'UTILITY' | 'MARKETING' | 'AUTHENTICATION',
+        components: item.components || [],
+        updated_time: new Date().toISOString() // API doesn't provide updated_time, using current time
+      }));
+      
+      setTemplates(fetchedTemplates);
     } catch (err) {
+      console.error('Error loading templates:', err);
       setError(err instanceof Error ? err.message : 'Failed to load templates');
     } finally {
       setLoading(false);
@@ -237,10 +250,10 @@ export default function TemplatesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Template Name</TableHead>
-                <TableHead>Language</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Placeholders</TableHead>
+                <TableHead>Preview</TableHead>
                 <TableHead>Last Updated</TableHead>
               </TableRow>
             </TableHeader>
@@ -252,9 +265,7 @@ export default function TemplatesPage() {
                     <TableCell className="font-medium">
                       {template.name}
                     </TableCell>
-                    <TableCell>
-                      {template.language.replace('_', '-').toUpperCase()}
-                    </TableCell>
+                    
                     <TableCell>
                       <Badge variant="outline">
                         {template.category}
@@ -268,20 +279,53 @@ export default function TemplatesPage() {
                     <TableCell>
                       {placeholders.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {placeholders.slice(0, 3).map((placeholder, index) => (
+                          {placeholders.map((placeholder, index) => (
                             <Badge key={index} variant="secondary" className="text-xs">
                               {placeholder}
                             </Badge>
                           ))}
-                          {placeholders.length > 3 && (
-                            <Badge variant="secondary" className="text-xs">
-                              +{placeholders.length - 3} more
-                            </Badge>
-                          )}
                         </div>
                       ) : (
                         <span className="text-muted-foreground text-sm">None</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            Preview
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>{template.name.replace(/_/g, ' ')}</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            {getTemplateHeaderText(template) && (
+                              <div>
+                                <h4 className="font-semibold text-sm text-muted-foreground mb-2">HEADER</h4>
+                                <div className="p-3 bg-gray-50 rounded border-l-4 border-blue-500">
+                                  <p className="whitespace-pre-wrap">{getTemplateHeaderText(template)}</p>
+                                </div>
+                              </div>
+                            )}
+                            <div>
+                              <h4 className="font-semibold text-sm text-muted-foreground mb-2">BODY</h4>
+                              <div className="p-3 bg-gray-50 rounded border-l-4 border-green-500">
+                                <p className="whitespace-pre-wrap">{getTemplateBodyText(template)}</p>
+                              </div>
+                            </div>
+                            {getTemplateFooterText(template) && (
+                              <div>
+                                <h4 className="font-semibold text-sm text-muted-foreground mb-2">FOOTER</h4>
+                                <div className="p-3 bg-gray-50 rounded border-l-4 border-gray-500">
+                                  <p className="whitespace-pre-wrap">{getTemplateFooterText(template)}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </TableCell>
                                       <TableCell>
                     {template.updated_time && formatDate(template.updated_time)}

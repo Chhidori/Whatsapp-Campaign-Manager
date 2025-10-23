@@ -39,22 +39,25 @@ export class WhatsAppAPIService {
 // Helper function to extract placeholders from template components
 export function extractPlaceholders(template: WhatsAppTemplate): string[] {
   const placeholders: string[] = [];
-  
+
+  // Match both positional ({{1}}) and named ({{client_name}}) placeholders
+  const placeholderRegex = /\{\{\s*([^}]+?)\s*\}\}/g;
+
   template.components.forEach(component => {
     if (component.text) {
-      const matches = component.text.match(/\{\{(\d+)\}\}/g);
-      if (matches) {
-        matches.forEach(match => {
-          const placeholder = match.replace(/\{\{|\}\}/g, '');
-          if (!placeholders.includes(`{{${placeholder}}}`)) {
-            placeholders.push(`{{${placeholder}}}`);
-          }
-        });
+      let match: RegExpExecArray | null;
+      // Use exec loop to capture all groups and preserve original order
+      while ((match = placeholderRegex.exec(component.text)) !== null) {
+        const key = match[1].trim();
+        const token = `{{${key}}}`;
+        if (!placeholders.includes(token)) {
+          placeholders.push(token);
+        }
       }
     }
   });
-  
-  return placeholders.sort();
+
+  return placeholders;
 }
 
 // Helper function to get status badge variant
