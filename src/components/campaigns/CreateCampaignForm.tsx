@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,7 @@ import CustomToggle from '@/components/ui/custom-toggle';
 
 export default function CreateCampaignForm() {
   const router = useRouter();
+  const { session } = useAuth();
 
   const [campaignData, setCampaignData] = useState<CreateCampaignData>({
     name: '',
@@ -42,11 +44,28 @@ export default function CreateCampaignForm() {
   const [promptName, setPromptName] = useState<string>('');
 
   const [contacts, setContacts] = useState<ImportContact[]>([]);
-  const [contactsInput, setContactsInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<'error' | 'warning' | 'info' | 'success'>('error');
   const [success, setSuccess] = useState<string | null>(null);
   const [step, setStep] = useState<'details' | 'automation' | 'contacts' | 'review'>('details');
+  const [defaultCountry, setDefaultCountry] = useState<string>(''); // No default
+  const [showCountrySelector, setShowCountrySelector] = useState(false);
+  const countryDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Country list
+  const countries = [
+    { code: '+91', name: 'India', flag: '🇮🇳' },
+    { code: '+1', name: 'United States', flag: '🇺🇸' },
+    { code: '+44', name: 'United Kingdom', flag: '🇬🇧' },
+    { code: '+86', name: 'China', flag: '🇨🇳' },
+    { code: '+81', name: 'Japan', flag: '🇯🇵' },
+    { code: '+49', name: 'Germany', flag: '🇩🇪' },
+    { code: '+33', name: 'France', flag: '🇫🇷' },
+    { code: '+61', name: 'Australia', flag: '🇦🇺' },
+    { code: '+55', name: 'Brazil', flag: '🇧🇷' },
+    { code: '+52', name: 'Mexico', flag: '🇲🇽' }
+  ];
 
   // Test database connection on component mount
   useEffect(() => {
@@ -56,55 +75,190 @@ export default function CreateCampaignForm() {
         const result = await response.json();
         
         if (!result.canConnect) {
-          setError('Database connection failed. Please check your configuration.');
+          setErrorMessage('Database connection failed. Please check your configuration.', 'error');
         }
       } catch (error) {
         console.error('Error testing connection:', error);
-        setError('Database connection failed. Please check your configuration.');
+        setErrorMessage('Database connection failed. Please check your configuration.', 'error');
       }
     };
     
     testConnection();
   }, []);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (countryDropdownRef.current && !countryDropdownRef.current.contains(event.target as Node)) {
+        setShowCountrySelector(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const formatPhoneNumberWithCountry = (phone: string, countryCode: string): string => {
+    const cleaned = phone.replace(/[^\d+]/g, '');
+    
+    // If already has country code, keep it
+    if (cleaned.startsWith('+')) {
+      return cleaned;
+    }
+    
+    // If no country code selected and phone doesn't have one, return as-is (will be caught by validation)
+    if (!countryCode) {
+      return cleaned;
+    }
+    
+    // Add the selected country code
+    return `${countryCode}${cleaned}`;
+  };
+
+  const setErrorMessage = (message: string, type: 'error' | 'warning' | 'info' | 'success' = 'error') => {
+    setError(message);
+    setErrorType(type);
+  };
+
+  const clearError = () => {
+    setError(null);
+    setErrorType('error');
+  };
+
   const handleInputChange = (field: keyof CreateCampaignData, value: string | boolean) => {
     setCampaignData(prev => ({ ...prev, [field]: value }));
   };
 
-  const parseContactsFromText = (text: string): ImportContact[] => {
+  const parseContactsFromText = (text: string): { contacts: ImportContact[], skippedCount: number, skippedMessage?: string } => {
     const lines = text.trim().split('\n');
-    const parsedContacts: ImportContact[] = [];
+    if (lines.length === 0) return { contacts: [], skippedCount: 0 };
 
-    lines.forEach(line => {
+    const parsedContacts: ImportContact[] = [];
+    const skippedContacts: string[] = [];
+    let headers: string[] = [];
+    let isCSVWithHeaders = false;
+
+    // Check if first line looks like headers (contains 'name' and 'phone')
+    const firstLine = lines[0].trim();
+    const firstLineParts = firstLine.split(/[,\t]+/).map(p => p.trim());
+    
+    if (firstLineParts.some(part => 
+      part.toLowerCase().includes('name') || 
+      part.toLowerCase().includes('phone') || 
+      part.toLowerCase().includes('number')
+    )) {
+      isCSVWithHeaders = true;
+      headers = firstLineParts.map(h => h.trim());
+      
+      // Validate header count (max 12: Name + Phone + 10 custom fields)
+      if (headers.length > 12) {
+        throw new Error(`Too many columns detected (${headers.length}). Maximum allowed is 12 (Name, Phone Number, and up to 10 custom fields).`);
+      }
+    }
+
+    const dataLines = isCSVWithHeaders ? lines.slice(1) : lines;
+
+    if (dataLines.length === 0) {
+      throw new Error('No contact data found in the file. Please check your CSV format.');
+    }
+
+    dataLines.forEach((line, lineIndex) => {
       const trimmedLine = line.trim();
       if (!trimmedLine) return;
 
-      // Try to split by comma, tab, or multiple spaces
-      const parts = trimmedLine.split(/[,\t]+|\s{2,}/).map(p => p.trim());
+      const parts = trimmedLine.split(/[,\t]+/).map(p => p.trim());
       
-      if (parts.length >= 2) {
-        // Format: Name, Phone
-        const name = parts[0];
-        const phone = CampaignService.formatPhoneNumber(parts[1]);
-        if (CampaignService.validatePhoneNumber(phone)) {
-          parsedContacts.push({ name, phone_number: phone });
+      if (isCSVWithHeaders && headers.length > 0) {
+        // CSV with headers - map each column to appropriate field
+        if (parts.length > headers.length) {
+          console.warn(`Line ${lineIndex + 2}: More values than headers, ignoring extra values`);
         }
-      } else if (parts.length === 1) {
-        // Only phone number
-        const phone = CampaignService.formatPhoneNumber(parts[0]);
-        if (CampaignService.validatePhoneNumber(phone)) {
-          parsedContacts.push({ phone_number: phone });
+        
+        let name = '';
+        let phone = '';
+        const customFields: Record<string, string> = {};
+        let customFieldCount = 0;
+
+        headers.forEach((header, index) => {
+          if (index >= parts.length) return;
+          
+          const value = parts[index].trim();
+          if (!value) return;
+
+          const lowerHeader = header.toLowerCase();
+          
+          if (lowerHeader.includes('name') && !name) {
+            name = value;
+          } else if ((lowerHeader.includes('phone') || lowerHeader.includes('number')) && !phone) {
+            phone = formatPhoneNumberWithCountry(value, defaultCountry);
+          } else {
+            // Custom field
+            if (customFieldCount < 10) {
+              customFields[header] = value;
+              customFieldCount++;
+            }
+          }
+        });
+
+        // Validate phone number - if no country selected and no + prefix, skip this contact
+        if (!defaultCountry && !phone.startsWith('+')) {
+          const originalPhone = parts.find(p => p.match(/[\d\-\(\)\s]+/)) || 'invalid phone';
+          skippedContacts.push(`${name || 'Unknown'} (${originalPhone})`);
+          return;
+        }
+
+        if (CampaignService.validatePhoneNumberForCountry ? CampaignService.validatePhoneNumberForCountry(phone) : CampaignService.validatePhoneNumber(phone)) {
+          const contact: ImportContact = { phone_number: phone };
+          if (name) contact.name = name;
+          if (Object.keys(customFields).length > 0) contact.custom_fields = customFields;
+          parsedContacts.push(contact);
+        }
+      } else {
+        // Legacy format: Name, Phone or just Phone
+        if (parts.length >= 2) {
+          // Format: Name, Phone
+          const name = parts[0];
+          const phone = formatPhoneNumberWithCountry(parts[1], defaultCountry);
+          
+          // Skip if no country selected and no + prefix
+          if (!defaultCountry && !phone.startsWith('+')) {
+            skippedContacts.push(`${name} (${parts[1]})`);
+            return;
+          }
+          
+          if (CampaignService.validatePhoneNumberForCountry ? CampaignService.validatePhoneNumberForCountry(phone) : CampaignService.validatePhoneNumber(phone)) {
+            parsedContacts.push({ name, phone_number: phone });
+          }
+        } else if (parts.length === 1) {
+          // Only phone number
+          const phone = formatPhoneNumberWithCountry(parts[0], defaultCountry);
+          
+          // Skip if no country selected and no + prefix
+          if (!defaultCountry && !phone.startsWith('+')) {
+            skippedContacts.push(`Unknown (${parts[0]})`);
+            return;
+          }
+          
+          if (CampaignService.validatePhoneNumberForCountry ? CampaignService.validatePhoneNumberForCountry(phone) : CampaignService.validatePhoneNumber(phone)) {
+            parsedContacts.push({ phone_number: phone });
+          }
         }
       }
     });
 
-    return parsedContacts;
-  };
+    // Prepare skipped message if any
+    let skippedMessage;
+    if (skippedContacts.length > 0) {
+      skippedMessage = `${skippedContacts.length} contacts skipped (need country code): ${skippedContacts.slice(0, 3).join(', ')}${skippedContacts.length > 3 ? '...' : ''}`;
+    }
 
-  const handleContactsImport = () => {
-    const parsed = parseContactsFromText(contactsInput);
-    setContacts(parsed);
-    setContactsInput('');
+    return { 
+      contacts: parsedContacts, 
+      skippedCount: skippedContacts.length,
+      skippedMessage 
+    };
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,8 +270,8 @@ export default function CreateCampaignForm() {
   };
 
   const processFile = (file: File) => {
-    if (!file.type.includes('text') && !file.name.endsWith('.csv') && !file.name.endsWith('.txt')) {
-      setError('Please upload a CSV or TXT file');
+    if (!file.name.endsWith('.csv')) {
+      setErrorMessage('Please upload a CSV file only', 'error');
       return;
     }
 
@@ -125,9 +279,29 @@ export default function CreateCampaignForm() {
     reader.onload = (e) => {
       const text = e.target?.result as string;
       if (text) {
-        const parsed = parseContactsFromText(text);
-        setContacts(parsed);
-        setError(''); // Clear any previous errors
+        try {
+          const result = parseContactsFromText(text);
+          if (result.contacts.length === 0) {
+            if (result.skippedCount > 0) {
+              setErrorMessage(`No valid contacts imported. ${result.skippedMessage}`, 'warning');
+            } else {
+              setErrorMessage('No valid contacts found in the CSV file. Please check the format.', 'warning');
+            }
+          } else {
+            setContacts(result.contacts);
+            let message = `Successfully imported ${result.contacts.length} contacts.`;
+            if (result.skippedCount > 0) {
+              message += ` ${result.skippedMessage}`;
+              setErrorMessage(message, 'warning');
+            } else {
+              setErrorMessage(message, 'success');
+              setTimeout(() => clearError(), 3000); // Clear success message after 3 seconds
+            }
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          setErrorMessage(errorMessage, 'error');
+        }
       }
     };
     reader.readAsText(file);
@@ -155,13 +329,14 @@ export default function CreateCampaignForm() {
   const handleSubmit = async () => {
     if (step === 'details') {
       if (!campaignData.name.trim()) {
-        setError('Campaign name is required');
+        setErrorMessage('Campaign name is required', 'warning');
         return;
       }
       if (!campaignData.template_name.trim()) {
-        setError('WhatsApp template is required');
+        setErrorMessage('WhatsApp template is required', 'warning');
         return;
       }
+      clearError();
       setStep('automation');
       return;
     }
@@ -172,13 +347,22 @@ export default function CreateCampaignForm() {
     }
 
     if (step === 'contacts') {
+      if (contacts.length === 0) {
+        setErrorMessage('Please upload a CSV file with contacts before proceeding.', 'warning');
+        return;
+      }
+      if (!defaultCountry) {
+        setErrorMessage('Please select a default country code.', 'warning');
+        return;
+      }
+      clearError();
       setStep('review');
       return;
     }
 
     // Final submission
     setLoading(true);
-    setError(null);
+    clearError();
 
     try {
       // Create campaign and send webhook to n8n
@@ -192,6 +376,7 @@ export default function CreateCampaignForm() {
         contacts: contacts.map(contact => ({
           name: contact.name,
           phone_number: contact.phone_number,
+          custom_fields: contact.custom_fields || {},
           lead_id: `LEAD_${Date.now()}_${Math.floor(Math.random() * 1000)}` // Generate lead_id if not present
         }))
       };
@@ -199,11 +384,19 @@ export default function CreateCampaignForm() {
       console.log('=== SENDING CAMPAIGN REQUEST ===');
       console.log('Request data:', JSON.stringify(requestData, null, 2));
       
+      // Prepare headers with authentication
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add authorization header if session is available
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      
       const response = await fetch('/api/campaigns', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(requestData)
       });
 
@@ -240,7 +433,7 @@ export default function CreateCampaignForm() {
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      setError(`Failed to create campaign: ${errorMessage}`);
+      setErrorMessage(`Failed to create campaign: ${errorMessage}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -259,12 +452,16 @@ export default function CreateCampaignForm() {
   };
 
   const downloadTemplate = () => {
-    const csvContent = 'Name,Phone Number\nJohn Doe,1234567890\nJane Smith,9876543210\nAlice Johnson,+1122334455';
+    const selectedCountry = countries.find(c => c.code === defaultCountry);
+    const csvContent = `Name,Phone Number,Company,Email,City,Age,Gender,Occupation,Interest,Source,Notes,Custom Field 10
+John Doe,${defaultCountry}1234567890,ABC Corp,john@example.com,New York,30,Male,Engineer,Technology,Website,VIP Customer,Premium
+Jane Smith,+911234567890,XYZ Ltd,jane@example.com,London,25,Female,Designer,Art,Referral,Regular Customer,Standard
+Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Business,Social Media,New Lead,Basic`;
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'contacts_template.csv';
+    a.download = `contacts_template_${selectedCountry?.name.replace(/\s+/g, '_')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -344,8 +541,25 @@ export default function CreateCampaignForm() {
       </div>
 
       {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertDescription>{error}</AlertDescription>
+        <Alert 
+          variant={errorType === 'error' ? 'destructive' : errorType === 'success' ? 'default' : 'default'} 
+          className={`mb-6 ${
+            errorType === 'success' ? 'border-green-200 bg-green-50' :
+            errorType === 'warning' ? 'border-yellow-200 bg-yellow-50' :
+            errorType === 'info' ? 'border-blue-200 bg-blue-50' :
+            '' // destructive (error) uses default red styling
+          }`}
+        >
+          <AlertDescription 
+            className={
+              errorType === 'success' ? 'text-green-800' :
+              errorType === 'warning' ? 'text-yellow-800' :
+              errorType === 'info' ? 'text-blue-800' :
+              '' // destructive (error) uses default red text
+            }
+          >
+            {error}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -460,77 +674,105 @@ export default function CreateCampaignForm() {
                 <Users className="h-5 w-5 text-primary" />
                 <h2 className="text-xl font-semibold">Import Contacts</h2>
               </div>
-              <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
-                <Download className="h-4 w-4" />
-                Download Template
-              </Button>
+              <div className="flex items-center gap-3">
+                {/* Country Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Country: <span className="text-red-500">*</span>
+                  </span>
+                  <div className="relative" ref={countryDropdownRef}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowCountrySelector(!showCountrySelector)}
+                      className={`h-8 px-2 text-xs ${!defaultCountry ? 'border-red-300 bg-red-50 text-red-700' : ''}`}
+                    >
+                      <span className="flex items-center gap-1">
+                        {defaultCountry ? (
+                          <>
+                            {countries.find(c => c.code === defaultCountry)?.flag}
+                            <span>{defaultCountry}</span>
+                          </>
+                        ) : (
+                          <span className="text-red-600">Select Country</span>
+                        )}
+                      </span>
+                    </Button>
+                    
+                    {showCountrySelector && (
+                      <div className="absolute top-full right-0 mt-1 bg-white border rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto w-48">
+                        {countries.map((country) => (
+                          <button
+                            key={country.code}
+                            onClick={() => {
+                              setDefaultCountry(country.code);
+                              setShowCountrySelector(false);
+                            }}
+                            className="w-full px-3 py-2 text-left hover:bg-gray-100 flex items-center gap-2 text-xs"
+                          >
+                            <span>{country.flag}</span>
+                            <span className="flex-1">{country.name}</span>
+                            <span className="text-gray-500">{country.code}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Download Template
+                </Button>
+              </div>
             </div>
 
             {/* File Upload Section */}
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Import from File</label>
-                <div 
-                  className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-primary/50 transition-colors"
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    accept=".csv,.txt"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    id="contacts-file-upload"
-                  />
-                  <label 
-                    htmlFor="contacts-file-upload" 
-                    className="cursor-pointer flex flex-col items-center gap-2 hover:text-primary transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-6 w-6 text-muted-foreground" />
-                      <Upload className="h-6 w-6 text-muted-foreground" />
-                    </div>
-                    <span className="text-sm font-medium">Upload CSV or TXT file</span>
-                    <span className="text-xs text-muted-foreground">
-                      Drag & drop or click to select file
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">Or Paste Contacts</label>
-                <textarea
-                  className="w-full h-32 p-3 border rounded-md resize-none"
-                  value={contactsInput}
-                  onChange={(e) => setContactsInput(e.target.value)}
-                  placeholder="Paste contacts here. Format:&#10;John Doe, +1234567890&#10;Jane Smith, +9876543210&#10;Or just phone numbers:&#10;+1234567890&#10;+9876543210"
+            <div className="max-w-md mx-auto">
+              <label className="text-sm font-medium mb-3 block text-center">Upload CSV File</label>
+              <div 
+                className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center hover:border-primary/50 transition-colors"
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="contacts-file-upload"
                 />
-                <div className="flex items-center justify-between mt-2">
-                  <p className="text-xs text-muted-foreground">
-                    Supported formats: &quot;Name, Phone&quot; or just phone numbers
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handleContactsImport}
-                    disabled={!contactsInput.trim()}
-                    className="gap-2"
-                  >
-                    <Upload className="h-4 w-4" />
-                    Parse Contacts
-                  </Button>
-                </div>
+                <label 
+                  htmlFor="contacts-file-upload" 
+                  className="cursor-pointer flex flex-col items-center gap-3 hover:text-primary transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-8 w-8 text-muted-foreground" />
+                    <Upload className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-base font-medium">Upload your contacts file</span>
+                    <p className="text-sm text-muted-foreground">
+                      Drag & drop or click to select CSV file
+                    </p>
+                  </div>
+                </label>
               </div>
             </div>
 
-            {/* File Format Help */}
-            <div className="bg-muted/50 rounded-lg p-4">
-              <h4 className="text-sm font-medium mb-2">Supported File Formats:</h4>
+            {/* Simple Format Help */}
+            <div className="bg-muted/50 rounded-lg p-4 max-w-2xl mx-auto">
+              <h4 className="text-sm font-medium mb-2">CSV Format Requirements:</h4>
               <div className="text-xs text-muted-foreground space-y-1">
-                <div>• <strong>CSV:</strong> Name,Phone Number (e.g., John Doe,+1234567890)</div>
-                <div>• <strong>TXT:</strong> Each line with Name, Phone or just Phone numbers</div>
-                <div>• <strong>Phone Format:</strong> Include country code (e.g., +1, +44, +91)</div>
+                <div>• <strong>Headers Required:</strong> Name, Phone Number (+ up to 10 custom fields)</div>
+                <div>• <strong>Phone Numbers:</strong> Include country code (+91, +1, +44) or select default above</div>
+                <div>• <strong>Country Selection:</strong> <span className="text-red-600">Required</span> - Select your default country code above</div>
+                <div>• <strong>Field Limit:</strong> Maximum 12 columns total</div>
+                <div>• <strong>File Type:</strong> CSV format only</div>
+              </div>
+              <div className="mt-2 text-xs">
+                <strong>Examples:</strong> +911234567890, +1234567890, or 1234567890 
+                {defaultCountry && <span>(uses selected country: {defaultCountry})</span>}
               </div>
             </div>
 
@@ -540,15 +782,32 @@ export default function CreateCampaignForm() {
                 <div className="max-h-64 overflow-y-auto border rounded-md">
                   {contacts.map((contact, index) => (
                     <div key={index} className="flex items-center justify-between p-3 border-b last:border-b-0">
-                      <div>
-                        <p className="font-medium">{contact.name || 'No name'}</p>
-                        <p className="text-sm text-muted-foreground">{contact.phone_number}</p>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="font-medium">{contact.name || 'No name'}</p>
+                          <span className="text-xs text-muted-foreground">
+                            {contact.phone_number}
+                          </span>
+                        </div>
+                        {contact.custom_fields && Object.keys(contact.custom_fields).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {Object.entries(contact.custom_fields).map(([key, value]) => (
+                              <span
+                                key={key}
+                                className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-xs"
+                              >
+                                <span className="font-medium text-muted-foreground">{key}:</span>
+                                <span className="ml-1">{value}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => removeContact(index)}
-                        className="text-destructive hover:text-destructive"
+                        className="text-destructive hover:text-destructive ml-2"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -619,6 +878,24 @@ export default function CreateCampaignForm() {
                     <span className="text-muted-foreground">Phone Only:</span>
                     <span>{contacts.filter(c => !c.name).length}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">With Custom Data:</span>
+                    <span>{contacts.filter(c => c.custom_fields && Object.keys(c.custom_fields).length > 0).length}</span>
+                  </div>
+                  {(() => {
+                    const allCustomFields = new Set<string>();
+                    contacts.forEach(c => {
+                      if (c.custom_fields) {
+                        Object.keys(c.custom_fields).forEach(key => allCustomFields.add(key));
+                      }
+                    });
+                    return allCustomFields.size > 0 ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Custom Fields:</span>
+                        <span>{allCustomFields.size}</span>
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
               </div>
             </div>

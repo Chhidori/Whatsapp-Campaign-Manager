@@ -7,20 +7,61 @@ export async function POST(request: NextRequest) {
     console.log('=== CAMPAIGN CREATION STARTED ===');
     
     // Create Supabase client for this API route
-    const supabase = createSupabaseForApiRoute(request);
+    let supabase;
+    let authUserId;
     
-    // Get the authenticated user's session to extract user ID
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      console.error('Authentication error:', authError);
-      return NextResponse.json({
-        error: 'User not authenticated',
-        details: authError?.message || 'No user session found'
-      }, { status: 401 });
+    try {
+      supabase = createSupabaseForApiRoute(request);
+      
+      // Get the authenticated user's session to extract user ID
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('Authentication error:', authError);
+        return NextResponse.json({
+          error: 'User not authenticated',
+          details: authError?.message || 'No user session found',
+          hint: 'Please ensure you are logged in and try again'
+        }, { status: 401 });
+      }
+      
+      authUserId = user.id;
+      console.log('Authenticated user ID for webhook:', authUserId);
+    } catch (schemaError) {
+      console.error('Schema/Auth error:', schemaError);
+      
+      // If schema error, try to get user from browser supabase without schema
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+      
+      // Try getting auth token from Authorization header
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return NextResponse.json({
+          error: 'User not authenticated',
+          details: 'No authorization token found. Please log in again.',
+          hint: 'Authentication token missing from request'
+        }, { status: 401 });
+      }
+      
+      const token = authHeader.replace('Bearer ', '');
+      supabase = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } }
+      });
+      
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('Token validation error:', authError);
+        return NextResponse.json({
+          error: 'User not authenticated',
+          details: authError?.message || 'Invalid authentication token',
+          hint: 'Please log in again'
+        }, { status: 401 });
+      }
+      
+      authUserId = user.id;
+      console.log('Authenticated user ID from token:', authUserId);
     }
-    
-    const authUserId = user.id;
-    console.log('Authenticated user ID for webhook:', authUserId);
     
     const body = await request.json();
     console.log('Request body received:', JSON.stringify(body, null, 2));
@@ -92,14 +133,23 @@ export async function POST(request: NextRequest) {
     // Step 1.5: Insert contacts into wa_contacts table with auto-generated lead_ids
     console.log('=== INSERTING CONTACTS ===');
     
-    const contactsWithLeadIds = contacts.map((contact: { name?: string; phone_number?: string; phone?: string; Phone?: string; lead_id?: string }) => {
+    const contactsWithLeadIds = contacts.map((contact: { 
+      name?: string; 
+      phone_number?: string; 
+      phone?: string; 
+      Phone?: string; 
+      lead_id?: string;
+      custom_fields?: Record<string, string>;
+    }) => {
       // Auto-generate lead_id if not provided
       const leadId = contact.lead_id || `LEAD_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
       
       return {
         name: contact.name || '',
         lead_id: leadId,
-        phone_number: contact.phone_number || contact.phone || contact.Phone || ''
+        phone_number: contact.phone_number || contact.phone || contact.Phone || '',
+        custom_fields: contact.custom_fields || {},
+        lead_status: 'new'
         // Removed campaign_id and created_date as they don't exist in wa_contacts table
       };
     });

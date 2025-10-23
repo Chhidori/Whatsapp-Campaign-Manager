@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Send, Plus, Calendar } from 'lucide-react';
+import { Send, Plus, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Campaign } from '@/types/campaign';
 import CustomToggle from '@/components/ui/custom-toggle';
@@ -22,6 +22,9 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingAutoReply, setUpdatingAutoReply] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCampaigns, setTotalCampaigns] = useState(0);
+  const campaignsPerPage = 10;
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -29,10 +32,10 @@ export default function CampaignsPage() {
     }
   }, [authLoading, user]);
 
-  const loadCampaigns = async () => {
+  const loadCampaigns = async (page = 1) => {
     setLoading(true);
     try {
-      const response = await fetch('/api/campaigns/list');
+      const response = await fetch(`/api/campaigns/list?page=${page}&limit=${campaignsPerPage}`);
       const result = await response.json();
       
       if (!response.ok) {
@@ -40,6 +43,8 @@ export default function CampaignsPage() {
       }
       
       setCampaigns(result.data || []);
+      setTotalCampaigns(result.total || 0);
+      setCurrentPage(page);
     } catch (error) {
       console.error('Error loading campaigns:', error);
     } finally {
@@ -184,6 +189,60 @@ export default function CampaignsPage() {
               ))}
             </TableBody>
           </Table>
+          
+          {/* Pagination Controls */}
+          {totalCampaigns > campaignsPerPage && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <div className="flex items-center text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * campaignsPerPage) + 1} to {Math.min(currentPage * campaignsPerPage, totalCampaigns)} of {totalCampaigns} campaigns
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadCampaigns(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="gap-1"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.ceil(totalCampaigns / campaignsPerPage) }, (_, i) => i + 1)
+                    .filter(page => 
+                      page === 1 || 
+                      page === Math.ceil(totalCampaigns / campaignsPerPage) || 
+                      Math.abs(page - currentPage) <= 2
+                    )
+                    .map((page, index, array) => (
+                      <div key={page} className="flex items-center">
+                        {index > 0 && array[index - 1] !== page - 1 && (
+                          <span className="px-2 text-muted-foreground">...</span>
+                        )}
+                        <Button
+                          variant={page === currentPage ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => loadCampaigns(page)}
+                          className="w-8 h-8 p-0"
+                        >
+                          {page}
+                        </Button>
+                      </div>
+                    ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadCampaigns(currentPage + 1)}
+                  disabled={currentPage === Math.ceil(totalCampaigns / campaignsPerPage)}
+                  className="gap-1"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

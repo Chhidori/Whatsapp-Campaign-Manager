@@ -60,6 +60,7 @@ export interface CreateCampaignData {
 export interface ImportContact {
   name?: string;
   phone_number: string;
+  custom_fields?: Record<string, string>;
 }
 
 // Lead Status Configuration Types

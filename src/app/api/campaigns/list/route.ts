@@ -7,8 +7,13 @@ export async function GET(request: Request) {
     // Create Supabase client for this API route
     const supabase = createSupabaseForApiRoute(request);
     
-    // Fetch campaigns from the database
-    const { data, error } = await CampaignService.getCampaigns(supabase);
+    // Parse query parameters
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '10');
+    
+    // Fetch campaigns from the database with pagination
+    const { data, total, error } = await CampaignService.getCampaignsPaginated(supabase, page, limit);
     
     if (error) {
       console.error('Error fetching campaigns:', error);
@@ -18,7 +23,13 @@ export async function GET(request: Request) {
       }, { status: 500 });
     }
     
-    return NextResponse.json({ data });
+    return NextResponse.json({ 
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil((total || 0) / limit)
+    });
   } catch (error) {
     console.error('Error in campaigns API:', error);
     return NextResponse.json({ 

@@ -63,6 +63,34 @@ export class CampaignService {
     }
   }
 
+  // Get campaigns with pagination
+  static async getCampaignsPaginated(supabase: SupabaseClientType, page: number = 1, limit: number = 10): Promise<{ data: Campaign[] | null; total: number; error: ServiceError }> {
+    try {
+      const offset = (page - 1) * limit;
+      
+      // Get total count
+      const { count, error: countError } = await supabase
+        .from('wa_campaigns')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError) {
+        return { data: null, total: 0, error: countError };
+      }
+
+      // Get paginated data
+      const { data, error } = await supabase
+        .from('wa_campaigns')
+        .select('*')
+        .order('created_date', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      return { data, total: count || 0, error };
+    } catch (error) {
+      console.error('Error fetching paginated campaigns:', error);
+      return { data: null, total: 0, error: error instanceof Error ? error : new Error('Unknown error') };
+    }
+  }
+
   // Get campaign by id
   static async getCampaignById(supabase: SupabaseClientType, id: string): Promise<{ data: Campaign | null; error: ServiceError }> {
     try {
@@ -139,6 +167,38 @@ export class CampaignService {
     const numericRegex = /^[1-9]\d{6,14}$/;
     
     return e164Regex.test(phone) || numericRegex.test(phone);
+  }
+
+  // Enhanced validation with country-specific rules
+  static validatePhoneNumberForCountry(phone: string): boolean {
+    const countryRules: Record<string, { minDigits: number; maxDigits: number }> = {
+      '+1': { minDigits: 10, maxDigits: 10 }, // US/Canada
+      '+91': { minDigits: 10, maxDigits: 10 }, // India
+      '+44': { minDigits: 10, maxDigits: 11 }, // UK
+      '+86': { minDigits: 11, maxDigits: 11 }, // China
+      '+81': { minDigits: 10, maxDigits: 11 }, // Japan
+      '+49': { minDigits: 10, maxDigits: 12 }, // Germany
+      '+33': { minDigits: 9, maxDigits: 10 }, // France
+      '+61': { minDigits: 9, maxDigits: 9 }, // Australia
+      '+55': { minDigits: 10, maxDigits: 11 }, // Brazil
+      '+52': { minDigits: 10, maxDigits: 10 } // Mexico
+    };
+
+    // Extract country code
+    const countryCodeMatch = phone.match(/^\+(\d{1,3})/);
+    if (!countryCodeMatch) return this.validatePhoneNumber(phone); // Fallback to basic validation
+    
+    const countryCode = `+${countryCodeMatch[1]}`;
+    const phoneWithoutCountry = phone.replace(countryCode, '');
+    const digits = phoneWithoutCountry.replace(/\D/g, '');
+    
+    const rule = countryRules[countryCode];
+    if (!rule) {
+      // Unknown country code - use generic validation
+      return digits.length >= 7 && digits.length <= 15;
+    }
+    
+    return digits.length >= rule.minDigits && digits.length <= rule.maxDigits;
   }
 
   // Format phone number - minimal cleaning, preserve + if present
