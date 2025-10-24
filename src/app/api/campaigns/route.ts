@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseForApiRoute } from '@/lib/supabase';
 import { getUserSchemaFromServerCookies } from '@/lib/server-user-schema';
 
+// Interface for template API response
+interface TemplateApiResponse {
+  name: string;
+  parameter_format?: string;
+}
+
+// Interface for parameter mapping
+interface ParameterMapping {
+  placeholder: string;
+  parameter_name: string;
+  mapped_field: string;
+  type: 'text';
+}
+
+// Interface for template parameter value
+interface TemplateParamValue {
+  type: 'text';
+  parameter_name: string;
+  text: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('=== CAMPAIGN CREATION STARTED ===');
@@ -66,8 +87,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log('Request body received:', JSON.stringify(body, null, 2));
     
-    const { name, description, template_name, template_id, contacts, scheduled_at, prompt_id, auto_reply } = body;
-    console.log('Extracted data:', { name, description, template_name, template_id, scheduled_at, prompt_id, auto_reply, contactCount: contacts?.length });
+    const { name, description, template_name, template_id, contacts, scheduled_at, prompt_id, auto_reply, parameter_mappings } = body;
+    console.log('Extracted data:', { name, description, template_name, template_id, scheduled_at, prompt_id, auto_reply, parameter_mappings, contactCount: contacts?.length });
 
     // Step 1: Insert campaign into database
     const campaignInsertData = {
@@ -194,14 +215,63 @@ export async function POST(request: NextRequest) {
     const userSchema = await getUserSchemaFromServerCookies();
     console.log('User schema for webhook:', userSchema);
     
+    // Get template information to include template_type
+    let templateType = '';
+    try {
+      // Fetch template information to get parameter_format
+      const templatesResponse = await fetch(process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://n8n.funbook.org.in/webhook/templates');
+      if (templatesResponse.ok) {
+        const templatesData = await templatesResponse.json();
+        const templateData = templatesData.data?.find((t: TemplateApiResponse) => t.name === template_name);
+        if (templateData && templateData.parameter_format) {
+          templateType = templateData.parameter_format.toLowerCase();
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching template information:', error);
+    }
+
+    // Function to generate template parameters for a contact
+    const generateTemplateParams = (contact: { name: string; phone_number: string; custom_fields?: Record<string, string> }, mappings: ParameterMapping[]): TemplateParamValue[] => {
+      if (!mappings || mappings.length === 0) {
+        return [];
+      }
+
+      return mappings.map(mapping => {
+        let value = '';
+        
+        // Get value based on mapped field
+        if (mapping.mapped_field === 'name') {
+          value = contact.name || '';
+        } else if (mapping.mapped_field === 'phone_number') {
+          value = contact.phone_number || '';
+        } else if (contact.custom_fields && contact.custom_fields[mapping.mapped_field]) {
+          value = contact.custom_fields[mapping.mapped_field];
+        }
+        
+        return {
+          type: 'text' as const,
+          parameter_name: mapping.parameter_name,
+          text: value
+        };
+      });
+    };
+
     // Use the contactsWithLeadIds (which have auto-generated lead_ids) for webhook
-    const webhookPayload = contactsWithLeadIds.map((contact: { name: string; lead_id: string; phone_number: string }) => ({
+    const webhookPayload = contactsWithLeadIds.map((contact: { 
+      name: string; 
+      lead_id: string; 
+      phone_number: string;
+      custom_fields?: Record<string, string>;
+    }) => ({
       name: contact.name,
       Phone: contact.phone_number,
       campaign_id: campaignId,
       template_name,
       lead_id: contact.lead_id,
       template_id: template_id || '',
+      template_type: templateType,
+      template_params: generateTemplateParams(contact, parameter_mappings || []),
       schema_name: userSchema,
       auth_user_id: authUserId
     }));

@@ -63,6 +63,26 @@ export interface ImportContact {
   custom_fields?: Record<string, string>;
 }
 
+// Template Parameter Mapping Types
+export interface TemplateParameter {
+  placeholder: string; // e.g., "{{1}}" or "{{client_name}}"
+  parameter_name: string; // e.g., "client_name"
+  type: 'text'; // Currently only text supported
+}
+
+export interface ParameterMapping {
+  placeholder: string; // e.g., "{{1}}" or "{{client_name}}"
+  parameter_name: string; // e.g., "client_name"
+  mapped_field: string; // e.g., "name", "phone_number", or custom field name
+  type: 'text';
+}
+
+export interface TemplateParamValue {
+  type: 'text';
+  parameter_name: string;
+  text: string;
+}
+
 // Lead Status Configuration Types
 export interface LeadStatusOption {
   value: string;

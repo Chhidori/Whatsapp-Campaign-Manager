@@ -21,9 +21,10 @@ import {
   Bot
 } from 'lucide-react';
 import { CampaignService } from '@/lib/campaign-service';
-import { CreateCampaignData, ImportContact } from '@/types/campaign';
+import { CreateCampaignData, ImportContact, ParameterMapping } from '@/types/campaign';
 import TemplateSelect from './TemplateSelect';
 import PromptSelect from './PromptSelect';
+import TemplateParameterMapping from './TemplateParameterMapping';
 import CustomToggle from '@/components/ui/custom-toggle';
 
 export default function CreateCampaignForm() {
@@ -42,13 +43,14 @@ export default function CreateCampaignForm() {
 
   const [templateId, setTemplateId] = useState<string>('');
   const [promptName, setPromptName] = useState<string>('');
+  const [parameterMappings, setParameterMappings] = useState<ParameterMapping[]>([]);
 
   const [contacts, setContacts] = useState<ImportContact[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'error' | 'warning' | 'info' | 'success'>('error');
   const [success, setSuccess] = useState<string | null>(null);
-  const [step, setStep] = useState<'details' | 'automation' | 'contacts' | 'review'>('details');
+  const [step, setStep] = useState<'details' | 'automation' | 'contacts' | 'mapping' | 'review'>('details');
   const [defaultCountry, setDefaultCountry] = useState<string>(''); // No default
   const [showCountrySelector, setShowCountrySelector] = useState(false);
   const countryDropdownRef = useRef<HTMLDivElement>(null);
@@ -356,6 +358,18 @@ export default function CreateCampaignForm() {
         return;
       }
       clearError();
+      setStep('mapping');
+      return;
+    }
+
+    if (step === 'mapping') {
+      // Validate that all required parameters are mapped
+      const hasUnmappedParams = parameterMappings.some(mapping => !mapping.mapped_field);
+      if (hasUnmappedParams) {
+        setErrorMessage('All template parameters must be mapped to contact fields.', 'warning');
+        return;
+      }
+      clearError();
       setStep('review');
       return;
     }
@@ -373,6 +387,7 @@ export default function CreateCampaignForm() {
         template_id: templateId || campaignData.template_name,
         prompt_id: campaignData.prompt_id || null,
         auto_reply: campaignData.auto_reply || false,
+        parameter_mappings: parameterMappings, // Include parameter mappings
         contacts: contacts.map(contact => ({
           name: contact.name,
           phone_number: contact.phone_number,
@@ -444,8 +459,10 @@ export default function CreateCampaignForm() {
       setStep('details');
     } else if (step === 'contacts') {
       setStep('automation');
-    } else if (step === 'review') {
+    } else if (step === 'mapping') {
       setStep('contacts');
+    } else if (step === 'review') {
+      setStep('mapping');
     } else {
       router.back();
     }
@@ -491,6 +508,7 @@ Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Bus
             {step === 'details' && 'Campaign Details'}
             {step === 'automation' && 'Automation Settings'}
             {step === 'contacts' && 'Import Contacts'}
+            {step === 'mapping' && 'Template Parameters'}
             {step === 'review' && 'Review & Create'}
           </h1>
           <p className="text-muted-foreground mt-2">
@@ -529,11 +547,20 @@ Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Bus
             <span>Contacts</span>
           </div>
           <div className="w-8 h-px bg-border" />
+          <div className={`flex items-center gap-2 ${step === 'mapping' ? 'text-primary' : 'text-muted-foreground'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'mapping' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+            }`}>
+              4
+            </div>
+            <span>Mapping</span>
+          </div>
+          <div className="w-8 h-px bg-border" />
           <div className={`flex items-center gap-2 ${step === 'review' ? 'text-primary' : 'text-muted-foreground'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
               step === 'review' ? 'bg-primary text-primary-foreground' : 'bg-muted'
             }`}>
-              4
+              5
             </div>
             <span>Review</span>
           </div>
@@ -817,6 +844,15 @@ Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Bus
               </div>
             )}
           </div>
+        )}
+
+        {step === 'mapping' && (
+          <TemplateParameterMapping
+            templateName={campaignData.template_name}
+            contacts={contacts}
+            parameterMappings={parameterMappings}
+            onMappingChange={setParameterMappings}
+          />
         )}
 
         {step === 'review' && (
