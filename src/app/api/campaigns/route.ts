@@ -151,8 +151,8 @@ export async function POST(request: NextRequest) {
     const campaignId = campaign.id;
     console.log('Campaign ID:', campaignId);
 
-    // Step 1.5: Insert contacts into wa_contacts table with auto-generated lead_ids
-    console.log('=== INSERTING CONTACTS ===');
+    // Step 1.5: Insert contacts into wa_contacts table with duplicate handling
+    console.log('=== INSERTING CONTACTS WITH DUPLICATE HANDLING ===');
     
     const contactsWithLeadIds = contacts.map((contact: { 
       name?: string; 
@@ -171,33 +171,70 @@ export async function POST(request: NextRequest) {
         phone_number: contact.phone_number || contact.phone || contact.Phone || '',
         custom_fields: contact.custom_fields || {},
         lead_status: 'new'
-        // Removed campaign_id and created_date as they don't exist in wa_contacts table
       };
     });
 
-    console.log('Contacts to insert:', JSON.stringify(contactsWithLeadIds, null, 2));
+    console.log('Contacts to process:', JSON.stringify(contactsWithLeadIds, null, 2));
 
-    const { data: insertedContacts, error: contactsError } = await supabase
+    // Check for existing contacts by phone_number  
+    const phoneNumbers = contactsWithLeadIds.map((c: { phone_number: string }) => c.phone_number).filter(Boolean);
+    
+    const { data: existingContacts, error: checkError } = await supabase
       .from('wa_contacts')
-      .insert(contactsWithLeadIds)
-      .select();
+      .select('phone_number, lead_id, name, custom_fields')
+      .in('phone_number', phoneNumbers);
 
-    if (contactsError) {
-      console.error('=== CONTACTS INSERTION ERROR ===');
-      console.error('Contacts error details:', JSON.stringify(contactsError, null, 2));
-      console.error('Contacts error code:', contactsError.code);
-      console.error('Contacts error message:', contactsError.message);
-      
-      // Campaign was created but contacts failed to insert
+    if (checkError) {
+      console.error('Error checking existing contacts:', checkError);
       return NextResponse.json({
         success: false,
-        error: 'Campaign created but failed to insert contacts',
+        error: 'Campaign created but failed to check existing contacts',
         campaign,
-        contactsError: contactsError.message
+        contactsError: checkError.message
       }, { status: 500 });
     }
 
-    console.log('Contacts inserted successfully:', insertedContacts);
+    console.log('Existing contacts found:', existingContacts);
+
+    // Separate new and existing contacts
+    const existingPhones = new Set(existingContacts?.map((c: { phone_number: string }) => c.phone_number) || []);
+    const newContacts = contactsWithLeadIds.filter((c: { phone_number: string }) => !existingPhones.has(c.phone_number));
+    const existingContactsForWebhook = existingContacts || [];
+
+    console.log(`Found ${newContacts.length} new contacts and ${existingContactsForWebhook.length} existing contacts`);
+
+    let insertedContacts: { name: string; lead_id: string; phone_number: string; custom_fields: Record<string, string> }[] = [];
+
+    // Insert only new contacts
+    if (newContacts.length > 0) {
+      const { data: newInsertedContacts, error: contactsError } = await supabase
+        .from('wa_contacts')
+        .insert(newContacts)
+        .select();
+
+      if (contactsError) {
+        console.error('=== NEW CONTACTS INSERTION ERROR ===');
+        console.error('Contacts error details:', JSON.stringify(contactsError, null, 2));
+        
+        return NextResponse.json({
+          success: false,
+          error: 'Campaign created but failed to insert new contacts',
+          campaign,
+          contactsError: contactsError.message
+        }, { status: 500 });
+      }
+
+      insertedContacts = newInsertedContacts || [];
+      console.log('New contacts inserted successfully:', insertedContacts);
+    }
+
+    // Combine all contacts for webhook (new + existing)
+    const allContactsForWebhook = [
+      ...insertedContacts,
+      ...existingContactsForWebhook
+    ];
+
+    console.log('Total contacts for webhook:', allContactsForWebhook.length);
 
     // Step 2: Make webhook request to n8n using the contacts with generated lead_ids
     const webhookUrl = process.env.WEBHOOK_ENDPOINT;
@@ -257,8 +294,8 @@ export async function POST(request: NextRequest) {
       });
     };
 
-    // Use the contactsWithLeadIds (which have auto-generated lead_ids) for webhook
-    const webhookPayload = contactsWithLeadIds.map((contact: { 
+    // Use allContactsForWebhook (both new and existing contacts) for webhook
+    const webhookPayload = allContactsForWebhook.map((contact: { 
       name: string; 
       lead_id: string; 
       phone_number: string;
@@ -305,7 +342,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         campaign,
-        webhookResult
+        webhookResult,
+        contactStats: {
+          total: allContactsForWebhook.length,
+          new: insertedContacts.length,
+          existing: existingContactsForWebhook.length
+        }
       });
 
     } catch (webhookError) {
@@ -313,7 +355,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         campaign,
-        webhookError: 'Failed to send webhook request but campaign was created'
+        webhookError: 'Failed to send webhook request but campaign was created',
+        contactStats: {
+          total: allContactsForWebhook.length,
+          new: insertedContacts.length,
+          existing: existingContactsForWebhook.length
+        }
       });
     }
 

@@ -430,6 +430,15 @@ export default function CreateCampaignForm() {
       if (result.success) {
         let successMessage = `Campaign "${campaignData.name}" created successfully! Campaign ID: ${result.campaign.id}`;
         
+        // Add contact statistics if available
+        if (result.contactStats) {
+          const { total, new: newCount, existing } = result.contactStats;
+          successMessage += `\n\nContacts processed: ${total} total`;
+          if (newCount > 0) successMessage += ` (${newCount} new`;
+          if (existing > 0) successMessage += newCount > 0 ? `, ${existing} existing)` : ` (${existing} existing)`;
+          if (newCount > 0 && existing === 0) successMessage += ')';
+        }
+        
         if (result.webhookError) {
           successMessage += `\n\nNote: ${result.webhookError}`;
         } else {
@@ -806,27 +815,33 @@ Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Bus
             {contacts.length > 0 && (
               <div>
                 <h3 className="font-medium mb-3">Imported Contacts ({contacts.length})</h3>
-                <div className="max-h-64 overflow-y-auto border rounded-md">
+                <div className="max-h-48 overflow-y-auto border rounded-md bg-white shadow-sm">
                   {contacts.map((contact, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 border-b last:border-b-0">
-                      <div className="flex-1">
+                    <div key={index} className="flex items-center justify-between p-2 border-b last:border-b-0 hover:bg-gray-50 transition-colors">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="font-medium">{contact.name || 'No name'}</p>
-                          <span className="text-xs text-muted-foreground">
+                          <p className="font-medium text-sm truncate">{contact.name || 'No name'}</p>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
                             {contact.phone_number}
                           </span>
                         </div>
                         {contact.custom_fields && Object.keys(contact.custom_fields).length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {Object.entries(contact.custom_fields).map(([key, value]) => (
+                            {Object.entries(contact.custom_fields).slice(0, 3).map(([key, value]) => (
                               <span
                                 key={key}
-                                className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-xs"
+                                className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-xs truncate max-w-20"
+                                title={`${key}: ${value}`}
                               >
                                 <span className="font-medium text-muted-foreground">{key}:</span>
-                                <span className="ml-1">{value}</span>
+                                <span className="ml-1 truncate">{value}</span>
                               </span>
                             ))}
+                            {Object.keys(contact.custom_fields).length > 3 && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-xs text-muted-foreground">
+                                +{Object.keys(contact.custom_fields).length - 3} more
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -834,9 +849,9 @@ Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Bus
                         variant="ghost"
                         size="sm"
                         onClick={() => removeContact(index)}
-                        className="text-destructive hover:text-destructive ml-2"
+                        className="text-destructive hover:text-destructive ml-2 flex-shrink-0"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     </div>
                   ))}
