@@ -10,34 +10,52 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 /**
- * Get user's schema from cookie - NO FALLBACK, must be set from user_schema table
+ * Get user's schema from cookie with validation - NO FALLBACK, must be set from user_schema table
  */
 async function getUserSchemaFromCookie(): Promise<string | null> {
-  const cookieStore = await cookies()
-  const userSchema = cookieStore.get('user_schema')?.value
-  return userSchema || null
+  try {
+    const cookieStore = await cookies()
+    const userSchema = cookieStore.get('user_schema')?.value
+    
+    if (!userSchema) {
+      console.warn('No user schema found in cookies');
+      return null;
+    }
+    
+    // Basic validation of schema name
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(userSchema)) {
+      console.warn('Invalid schema name format:', userSchema);
+      return null;
+    }
+    
+    return userSchema;
+  } catch (error) {
+    console.error('Error reading user schema from cookie:', error);
+    return null;
+  }
 }
 
-// Server client for database operations and API routes
+// Server client for database operations and API routes with retry logic
 export const createServerSupabaseClient = async () => {
-  const cookieStore = await cookies()
   const userSchema = await getUserSchemaFromCookie()
   
   if (!userSchema) {
     throw new Error('User schema not found. User must be logged in and have a schema assigned.')
   }
   
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
+  const client = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
-        return cookieStore.getAll()
+        return [] // Will be set by middleware
       },
       setAll(cookiesToSet: Array<{name: string, value: string, options?: Partial<ResponseCookie>}>) {
         try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          )
-        } catch {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            // Cookie setting will be handled by middleware
+            console.log(`Would set cookie: ${name}=${value}`, options)
+          })
+        } catch (error) {
+          console.warn('Error setting cookies in server client:', error)
           // The `setAll` method was called from a Server Component.
           // This can be ignored if you have middleware refreshing
           // user sessions.
@@ -48,6 +66,8 @@ export const createServerSupabaseClient = async () => {
       schema: userSchema
     }
   })
+  
+  return client
 }
 
 // Export for backward compatibility - creates a new server client instance
@@ -55,16 +75,42 @@ export const createServerSupabaseClient = async () => {
 export const getSupabaseClient = createServerSupabaseClient
 
 /**
- * Get user's schema from API request cookies - NO FALLBACK
+ * Get user's schema from API request cookies with validation - NO FALLBACK
  */
 function getUserSchemaFromRequest(request: Request): string | null {
-  const cookieHeader = request.headers.get('cookie')
-  if (!cookieHeader) return null
-  
-  const cookies = cookieHeader.split(';')
-  const schemaCookie = cookies.find(cookie => cookie.trim().startsWith('user_schema='))
-  
-  return schemaCookie ? schemaCookie.split('=')[1].trim() : null
+  try {
+    const cookieHeader = request.headers.get('cookie')
+    if (!cookieHeader) {
+      console.warn('No cookie header found in request');
+      return null;
+    }
+    
+    const cookies = cookieHeader.split(';')
+    const schemaCookie = cookies.find(cookie => cookie.trim().startsWith('user_schema='))
+    
+    if (!schemaCookie) {
+      console.warn('No user_schema cookie found in request');
+      return null;
+    }
+    
+    const schemaValue = schemaCookie.split('=')[1]?.trim()
+    
+    if (!schemaValue) {
+      console.warn('Empty user_schema cookie value');
+      return null;
+    }
+    
+    // Basic validation of schema name
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schemaValue)) {
+      console.warn('Invalid schema name format in request:', schemaValue);
+      return null;
+    }
+    
+    return schemaValue;
+  } catch (error) {
+    console.error('Error parsing user schema from request cookies:', error);
+    return null;
+  }
 }
 
 // For API routes that can handle cookies synchronously

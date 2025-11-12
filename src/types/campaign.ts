@@ -13,10 +13,12 @@ export interface Campaign {
 }
 
 export interface Contact {
-  id: string;
+  id?: string;
+  lead_id?: string;
   name?: string;
   phone_number: string;
-  created_date: string;
+  custom_fields?: Record<string, string>;
+  created_date?: string;
 }
 
 // WhatsApp Contact from wa_contacts table

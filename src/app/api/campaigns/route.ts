@@ -199,9 +199,59 @@ export async function POST(request: NextRequest) {
     // Separate new and existing contacts
     const existingPhones = new Set(existingContacts?.map((c: { phone_number: string }) => c.phone_number) || []);
     const newContacts = contactsWithLeadIds.filter((c: { phone_number: string }) => !existingPhones.has(c.phone_number));
-    const existingContactsForWebhook = existingContacts || [];
 
-    console.log(`Found ${newContacts.length} new contacts and ${existingContactsForWebhook.length} existing contacts`);
+    // Update existing contacts with new custom_fields (merge them)
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const updatedExistingContacts: any[] = [];
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    
+    if (existingContacts && existingContacts.length > 0) {
+      console.log('=== UPDATING EXISTING CONTACTS WITH NEW CUSTOM FIELDS ===');
+      
+      for (const existingContact of existingContacts) {
+        // Find the matching contact from the input with new data
+        const newContactData = contactsWithLeadIds.find(
+          (c: { phone_number: string }) => c.phone_number === existingContact.phone_number
+        );
+
+        if (newContactData) {
+          // Merge custom fields
+          const existingCustomFields = existingContact.custom_fields || {};
+          const newCustomFields = newContactData.custom_fields || {};
+          const mergedCustomFields = { ...existingCustomFields, ...newCustomFields };
+
+          console.log(`📞 Updating contact ${existingContact.phone_number}:`, {
+            existing_custom_fields: existingCustomFields,
+            new_custom_fields: newCustomFields,
+            merged_custom_fields: mergedCustomFields
+          });
+
+          // Update the contact in database
+          const { data: updatedContact, error: updateError } = await supabase
+            .from('wa_contacts')
+            .update({
+              custom_fields: mergedCustomFields
+            })
+            .eq('lead_id', existingContact.lead_id)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.error(`❌ Error updating contact ${existingContact.phone_number}:`, updateError);
+          } else {
+            console.log(`✅ Updated contact ${existingContact.phone_number} with merged custom_fields`);
+            updatedExistingContacts.push(updatedContact);
+          }
+        }
+      }
+    }
+
+    // Use updated contacts if available, otherwise use existing contacts as-is
+    const existingContactsForWebhook = updatedExistingContacts.length > 0 
+      ? updatedExistingContacts 
+      : existingContacts || [];
+
+    console.log(`Found ${newContacts.length} new contacts and ${existingContactsForWebhook.length} existing contacts (updated)`);
 
     let insertedContacts: { name: string; lead_id: string; phone_number: string; custom_fields: Record<string, string> }[] = [];
 

@@ -20,7 +20,9 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   useEffect(() => {
+    // Wait for auth loading to complete and ensure user is actually authenticated
     if (!authLoading && user) {
+      console.log('User already authenticated, redirecting to dashboard');
       router.replace('/');
     }
   }, [user, authLoading, router]);
@@ -31,19 +33,24 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      console.log('Attempting to sign in user:', email);
       const { error } = await signIn(email, password);
       
       if (error) {
+        console.error('Sign in error:', error.message);
         setError(error.message || 'Failed to sign in');
         setLoading(false);
       } else {
+        console.log('Sign in successful, waiting for auth state update...');
         // Don't set loading to false here, let useEffect handle redirect
-        // Wait a bit for auth state to update
+        // Wait a bit longer for auth state and schema to be properly set
         setTimeout(() => {
+          console.log('Redirecting to dashboard after successful authentication');
           router.replace('/');
-        }, 100);
+        }, 500); // Increased delay to allow for schema cookie setting
       }
-    } catch {
+    } catch (error) {
+      console.error('Unexpected sign in error:', error);
       setError('An unexpected error occurred');
       setLoading(false);
     }

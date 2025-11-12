@@ -11,19 +11,56 @@ type SupabaseClientType = {
 
 export class CampaignService {
   
-  // Test connection to the schema and table
-  static async testConnection(supabase: SupabaseClientType): Promise<boolean> {
-    try {
-      const { error } = await supabase
-        .from('wa_campaigns')
-        .select('count')
-        .limit(1);
+  // Test connection to the schema and table with retry logic
+  static async testConnection(supabase: SupabaseClientType, retries: number = 3): Promise<boolean> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(`Testing database connection, attempt ${attempt}/${retries}`);
+        
+        // Add a small delay for retries
+        if (attempt > 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
 
-      return !error;
-    } catch (error) {
-      console.error('Database connection test failed:', error);
-      return false;
+        const { error } = await supabase
+          .from('wa_campaigns')
+          .select('count')
+          .limit(1);
+
+        if (error) {
+          console.error(`Database connection test failed (attempt ${attempt}):`, error);
+          
+          // Don't retry for schema/permission errors
+          if (error.message?.includes('does not exist') || 
+              error.message?.includes('permission denied') ||
+              error.message?.includes('schema') && error.message?.includes('does not exist')) {
+            console.error('Schema or permission error - not retrying');
+            return false;
+          }
+          
+          // For network errors, continue to retry
+          if (attempt === retries) {
+            console.error('Database connection failed after all retries');
+            return false;
+          }
+          
+          continue;
+        }
+
+        console.log('Database connection test successful');
+        return true;
+        
+      } catch (error) {
+        console.error(`Database connection test exception (attempt ${attempt}):`, error);
+        
+        if (attempt === retries) {
+          console.error('Database connection test failed after all retries with exception:', error);
+          return false;
+        }
+      }
     }
+    
+    return false;
   }
 
   // Create a new campaign
@@ -124,23 +161,162 @@ export class CampaignService {
     }
   }
 
-  // Import contacts in bulk
+  // Import contacts in bulk with proper duplicate handling and custom fields update
   static async importContacts(supabase: SupabaseClientType, contacts: ImportContact[]): Promise<{ data: Contact[] | null; error: ServiceError }> {
     try {
       console.log('👥 CampaignService.importContacts called with:', contacts.length, 'contacts');
       
+      const processedContacts: Contact[] = [];
+      const errors: string[] = [];
 
+      for (const contact of contacts) {
+        try {
+          // Normalize phone number
+          const normalizedPhone = this.formatPhoneNumber(contact.phone_number);
+          
+          if (!this.validatePhoneNumber(normalizedPhone)) {
+            errors.push(`Invalid phone number: ${contact.phone_number}`);
+            continue;
+          }
 
-      const { data, error } = await supabase
-        .from('wa_contacts')
-        .upsert(contacts, { onConflict: 'phone_number' })
-        .select();
+          // Check if contact already exists
+          const { data: existingContact, error: checkError } = await supabase
+            .from('wa_contacts')
+            .select('*')
+            .eq('phone_number', normalizedPhone)
+            .maybeSingle();
 
-      return { data, error };
+          if (checkError) {
+            console.error('Error checking existing contact:', checkError);
+            errors.push(`Error checking contact ${normalizedPhone}: ${checkError.message}`);
+            continue;
+          }
+
+          if (existingContact) {
+            // Contact exists - update it, preserving the same lead_id
+            console.log(`📞 Found existing contact for ${normalizedPhone}:`, {
+              lead_id: existingContact.lead_id,
+              existing_custom_fields: existingContact.custom_fields,
+              new_custom_fields: contact.custom_fields
+            });
+            
+            // Get existing custom fields (handle null/undefined)
+            const existingCustomFields = existingContact.custom_fields && typeof existingContact.custom_fields === 'object' 
+              ? existingContact.custom_fields 
+              : {};
+            
+            const newCustomFields = contact.custom_fields && typeof contact.custom_fields === 'object'
+              ? contact.custom_fields 
+              : {};
+            
+            // Merge custom fields (new fields override existing ones)
+            const mergedCustomFields = { ...existingCustomFields, ...newCustomFields };
+            
+            console.log(`🔄 Merging custom fields for ${normalizedPhone}:`, {
+              existing: existingCustomFields,
+              new: newCustomFields,
+              merged: mergedCustomFields,
+              mergedKeys: Object.keys(mergedCustomFields),
+              mergedCount: Object.keys(mergedCustomFields).length
+            });
+            
+            // Build update object - ALWAYS include custom_fields (even if empty object)
+            /* eslint-disable @typescript-eslint/no-explicit-any */
+            const updatePayload: Record<string, any> = {
+              custom_fields: Object.keys(mergedCustomFields).length > 0 ? mergedCustomFields : {}
+            };
+            /* eslint-enable @typescript-eslint/no-explicit-any */
+            
+            // Only update name if a new one is provided
+            if (contact.name && contact.name.trim()) {
+              updatePayload.name = contact.name;
+            }
+            
+            console.log(`📝 Updating contact ${existingContact.lead_id} with payload:`, JSON.stringify(updatePayload, null, 2));
+            
+            const { data: updatedResults, error: updateError } = await supabase
+              .from('wa_contacts')
+              .update(updatePayload)
+              .eq('lead_id', existingContact.lead_id)
+              .select();
+
+            if (updateError) {
+              console.error('❌ Error updating contact:', updateError);
+              errors.push(`Error updating contact ${normalizedPhone}: ${updateError.message}`);
+            } else {
+              console.log(`✅ Successfully updated existing contact: ${normalizedPhone} (lead_id: ${existingContact.lead_id})`);
+              
+              // Use the returned data from update (which includes the updated record)
+              if (updatedResults && updatedResults.length > 0) {
+                const updatedContact = updatedResults[0];
+                console.log(`✅ Updated contact data:`, {
+                  lead_id: updatedContact.lead_id,
+                  name: updatedContact.name,
+                  custom_fields: updatedContact.custom_fields
+                });
+                processedContacts.push(updatedContact);
+              } else {
+                // Fallback: construct the updated object
+                const finalContact = {
+                  ...existingContact,
+                  name: updatePayload.name || existingContact.name,
+                  custom_fields: mergedCustomFields
+                };
+                console.log(`⚠️ Using fallback contact data:`, finalContact);
+                processedContacts.push(finalContact);
+              }
+            }
+          } else {
+            // Contact doesn't exist - create new one
+            const newLeadId = this.generateLeadId();
+            const newContact = {
+              lead_id: newLeadId,
+              name: contact.name,
+              phone_number: normalizedPhone,
+              custom_fields: contact.custom_fields || {}
+            };
+
+            const { data: createdContact, error: createError } = await supabase
+              .from('wa_contacts')
+              .insert([newContact])
+              .select()
+              .single();
+
+            if (createError) {
+              console.error('Error creating contact:', createError);
+              errors.push(`Error creating contact ${normalizedPhone}: ${createError.message}`);
+            } else {
+              console.log(`Created new contact: ${normalizedPhone} (lead_id: ${newLeadId})`);
+              processedContacts.push(createdContact);
+            }
+          }
+        } catch (contactError) {
+          console.error('Error processing contact:', contactError);
+          errors.push(`Error processing contact ${contact.phone_number}: ${contactError instanceof Error ? contactError.message : 'Unknown error'}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        console.warn('Import completed with errors:', errors);
+      }
+
+      console.log(`Import completed: ${processedContacts.length} contacts processed, ${errors.length} errors`);
+      
+      return { 
+        data: processedContacts, 
+        error: errors.length > 0 ? new Error(`Import completed with ${errors.length} errors: ${errors.slice(0, 3).join(', ')}${errors.length > 3 ? '...' : ''}`) : null 
+      };
     } catch (error) {
       console.error('Error importing contacts:', error);
       return { data: null, error: error instanceof Error ? error : new Error('Unknown error') };
     }
+  }
+
+  // Generate a unique lead ID
+  static generateLeadId(): string {
+    const timestamp = Date.now().toString(36);
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    return `lead_${timestamp}_${randomStr}`;
   }
 
   // Get all contacts

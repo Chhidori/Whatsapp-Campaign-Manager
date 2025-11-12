@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { CampaignService } from '@/lib/campaign-service';
 import { CreateCampaignData, ImportContact, ParameterMapping } from '@/types/campaign';
+import { extractPlaceholders } from '@/lib/whatsapp-api';
 import TemplateSelect from './TemplateSelect';
 import PromptSelect from './PromptSelect';
 import TemplateParameterMapping from './TemplateParameterMapping';
@@ -51,7 +52,7 @@ export default function CreateCampaignForm() {
   const [errorType, setErrorType] = useState<'error' | 'warning' | 'info' | 'success'>('error');
   const [success, setSuccess] = useState<string | null>(null);
   const [step, setStep] = useState<'details' | 'automation' | 'contacts' | 'mapping' | 'review'>('details');
-  const [defaultCountry, setDefaultCountry] = useState<string>(''); // No default
+  const [defaultCountry, setDefaultCountry] = useState<string>('+91'); // India as default
   const [showCountrySelector, setShowCountrySelector] = useState(false);
   const countryDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -69,25 +70,6 @@ export default function CreateCampaignForm() {
     { code: '+52', name: 'Mexico', flag: '🇲🇽' }
   ];
 
-  // Test database connection on component mount
-  useEffect(() => {
-    const testConnection = async () => {
-      try {
-        const response = await fetch('/api/test-db');
-        const result = await response.json();
-        
-        if (!result.canConnect) {
-          setErrorMessage('Database connection failed. Please check your configuration.', 'error');
-        }
-      } catch (error) {
-        console.error('Error testing connection:', error);
-        setErrorMessage('Database connection failed. Please check your configuration.', 'error');
-      }
-    };
-    
-    testConnection();
-  }, []);
-
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -101,6 +83,67 @@ export default function CreateCampaignForm() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Fetch template parameters when template is selected (for CSV template generation)
+  useEffect(() => {
+    const fetchTemplateParameters = async () => {
+      if (!campaignData.template_name) {
+        setParameterMappings([]);
+        return;
+      }
+      
+      try {
+        const webhookUrl = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://n8n.funbook.org.in/webhook/templates';
+        
+        const response = await fetch(webhookUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          console.error('Failed to fetch templates:', response.status);
+          return;
+        }
+
+        const responseData = await response.json();
+        const templatesData = responseData.data || [];
+        
+        // Find the selected template
+        const template = templatesData.find((t: { name: string }) => t.name === campaignData.template_name);
+        
+        if (template) {
+          // Extract placeholders using the existing utility function
+          const placeholders = extractPlaceholders(template);
+          
+          // Initialize parameter mappings for CSV template generation
+          const initialMappings: ParameterMapping[] = placeholders.map((placeholder) => {
+            // Extract parameter name from placeholder
+            let parameterName = placeholder.replace(/[{}]/g, '');
+            
+            // If it's a positional parameter like "1", convert to a descriptive name
+            if (/^\d+$/.test(parameterName)) {
+              parameterName = `param_${parameterName}`;
+            }
+            
+            return {
+              placeholder,
+              parameter_name: parameterName,
+              mapped_field: '', // Will be mapped later in the mapping step
+              type: 'text'
+            };
+          });
+          
+          setParameterMappings(initialMappings);
+        }
+      } catch (err) {
+        console.error('Error fetching template parameters:', err);
+      }
+    };
+
+    fetchTemplateParameters();
+  }, [campaignData.template_name]);
 
   const formatPhoneNumberWithCountry = (phone: string, countryCode: string): string => {
     const cleaned = phone.replace(/[^\d+]/g, '');
@@ -478,16 +521,64 @@ export default function CreateCampaignForm() {
   };
 
   const downloadTemplate = () => {
-    const selectedCountry = countries.find(c => c.code === defaultCountry);
-    const csvContent = `Name,Phone Number,Company,Email,City,Age,Gender,Occupation,Interest,Source,Notes,Custom Field 10
-John Doe,${defaultCountry}1234567890,ABC Corp,john@example.com,New York,30,Male,Engineer,Technology,Website,VIP Customer,Premium
-Jane Smith,+911234567890,XYZ Ltd,jane@example.com,London,25,Female,Designer,Art,Referral,Regular Customer,Standard
-Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Business,Social Media,New Lead,Basic`;
+    // Build CSV headers based on template parameters
+    const headers = ['Phone Number']; // Phone Number is always mandatory
+    
+    // Add Name if not already in parameter mappings
+    const hasNameParam = parameterMappings.some(m => 
+      m.parameter_name.toLowerCase().includes('name') || 
+      m.mapped_field === 'name'
+    );
+    if (!hasNameParam) {
+      headers.push('Name');
+    }
+    
+    // Add parameter names from template as columns
+    parameterMappings.forEach(mapping => {
+      // Use the parameter name from mapping, making it more readable
+      const columnName = mapping.parameter_name
+        .replace(/_/g, ' ')
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      
+      if (!headers.includes(columnName)) {
+        headers.push(columnName);
+      }
+    });
+    
+    // Create sample rows
+    const sampleRows = [
+      // Row 1
+      [
+        `${defaultCountry}1234567890`, // Phone Number
+        ...headers.slice(1).map((header, index) => {
+          if (header === 'Name') return 'John Doe';
+          return `Sample ${header} ${index + 1}`;
+        })
+      ],
+      // Row 2
+      [
+        `${defaultCountry}9876543210`, // Phone Number
+        ...headers.slice(1).map((header, index) => {
+          if (header === 'Name') return 'Jane Smith';
+          return `Sample ${header} ${index + 2}`;
+        })
+      ]
+    ];
+    
+    // Build CSV content
+    const csvRows = [
+      headers.join(','),
+      ...sampleRows.map(row => row.join(','))
+    ];
+    
+    const csvContent = csvRows.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `contacts_template_${selectedCountry?.name.replace(/\s+/g, '_')}.csv`;
+    a.download = 'template.csv';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -800,15 +891,18 @@ Alice Johnson,1122334455,Tech Inc,alice@example.com,Sydney,35,Female,Manager,Bus
             <div className="bg-muted/50 rounded-lg p-4 max-w-2xl mx-auto">
               <h4 className="text-sm font-medium mb-2">CSV Format Requirements:</h4>
               <div className="text-xs text-muted-foreground space-y-1">
-                <div>• <strong>Headers Required:</strong> Name, Phone Number (+ up to 10 custom fields)</div>
-                <div>• <strong>Phone Numbers:</strong> Include country code (+91, +1, +44) or select default above</div>
-                <div>• <strong>Country Selection:</strong> <span className="text-red-600">Required</span> - Select your default country code above</div>
-                <div>• <strong>Field Limit:</strong> Maximum 12 columns total</div>
+                <div>• <strong>Phone Number:</strong> Mandatory column - Include country code (+91, +1, +44) or uses default ({defaultCountry})</div>
+                {parameterMappings.length > 0 ? (
+                  <div>• <strong>Template Columns:</strong> Based on your selected WhatsApp template - {parameterMappings.map(m => m.parameter_name).join(', ')}</div>
+                ) : (
+                  <div>• <strong>Additional Columns:</strong> Name and any custom fields you need</div>
+                )}
+                <div>• <strong>Download Template:</strong> Click &quot;Download Template&quot; above to get the correct format for your selected template</div>
                 <div>• <strong>File Type:</strong> CSV format only</div>
               </div>
               <div className="mt-2 text-xs">
-                <strong>Examples:</strong> +911234567890, +1234567890, or 1234567890 
-                {defaultCountry && <span>(uses selected country: {defaultCountry})</span>}
+                <strong>Phone Number Examples:</strong> +911234567890, +1234567890, or 1234567890 
+                {defaultCountry && <span>(uses default country code: {defaultCountry})</span>}
               </div>
             </div>
 

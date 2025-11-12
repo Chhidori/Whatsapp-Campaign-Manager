@@ -9,7 +9,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Browser client for authentication and client-side operations
 export const createBrowserSupabaseClient = () => {
-  return createBrowserClient(supabaseUrl, supabaseAnonKey)
+  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    },
+    global: {
+      headers: {
+        'X-Client-Info': 'whatsapp-scheduler'
+      }
+    }
+  })
 }
 
 // Export for direct use in components that need authentication

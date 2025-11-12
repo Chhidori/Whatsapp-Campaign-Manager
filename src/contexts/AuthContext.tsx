@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { browserSupabase, type User } from '@/lib/supabase-browser';
 import { Session } from '@supabase/supabase-js';
-import { getUserSchema, setUserSchemaCookie, removeUserSchemaCookie } from '@/lib/user-schema';
+import { getUserSchema, setUserSchemaCookie, removeUserSchemaCookie, getUserSchemaCookie } from '@/lib/user-schema';
 
 interface AuthContextType {
   user: User | null;
@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const maxRetries = 3;
     
     // Set a timeout to prevent infinite loading
     const loadingTimeout = setTimeout(() => {
@@ -43,83 +44,122 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn('Auth loading timeout - setting loading to false');
         setLoading(false);
       }
-    }, 5000); // 5 second timeout
+    }, 10000); // 10 second timeout for better network handling
 
-    // Get initial session with better error handling
-    const initializeAuth = async () => {
+    // Get initial session with retry logic and better error handling
+    const initializeAuth = async (attempt: number = 1): Promise<void> => {
       try {
+        if (!mounted) return;
+
+        console.log(`Auth initialization attempt ${attempt}/${maxRetries}`);
+        
+        // Add a small delay for first retry to allow network to stabilize
+        if (attempt > 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+
         const { data: { session }, error } = await browserSupabase.auth.getSession();
         
         if (!mounted) return;
-      if (!mounted) return;
       
-      if (error) {
-        // Handle refresh token errors by clearing the session silently
-        if (error.message?.includes('Invalid Refresh Token') || 
-            error.message?.includes('Refresh Token Not Found') ||
-            error.message?.includes('refresh_token')) {
-          console.debug('Clearing expired session tokens');
-          // Clear any stale tokens silently
-          try {
-            await browserSupabase.auth.signOut();
-          } catch (signOutError) {
-            // Ignore sign out errors during cleanup
-            console.debug('Sign out error during cleanup:', signOutError);
-          }
-          setSession(null);
-          setUser(null);
-          removeUserSchemaCookie();
-        } else {
-          console.error('Session error:', error);
-        }
-        if (mounted) {
-          clearTimeout(loadingTimeout);
-          setLoading(false);
-        }
-        return;
-      }
-      
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      // If user is logged in but no schema cookie exists, fetch and set it
-      if (session?.user?.email) {
-        try {
-          const currentSchema = document.cookie.split(';').find(cookie => 
-            cookie.trim().startsWith('user_schema=')
-          );
-          
-          if (!currentSchema) {
-            const userSchema = await getUserSchema(session.user.id);
-            if (userSchema) {
-              setUserSchemaCookie(userSchema);
-            } else {
-              // If no schema found, sign out the user
-              console.warn('No schema assigned to user:', session.user.email);
+        if (error) {
+          // Handle refresh token errors by clearing the session silently
+          if (error.message?.includes('Invalid Refresh Token') || 
+              error.message?.includes('Refresh Token Not Found') ||
+              error.message?.includes('refresh_token')) {
+            console.debug('Clearing expired session tokens');
+            
+            // Clear any stale tokens silently
+            try {
               await browserSupabase.auth.signOut();
+            } catch (signOutError) {
+              console.debug('Sign out error during cleanup:', signOutError);
             }
+            
+            setSession(null);
+            setUser(null);
+            removeUserSchemaCookie();
+            
+            if (mounted) {
+              clearTimeout(loadingTimeout);
+              setLoading(false);
+            }
+            return;
+          } 
+          
+          // For network errors or temporary issues, retry
+          if ((error.message?.includes('network') || 
+               error.message?.includes('fetch') ||
+               error.message?.includes('timeout')) && 
+              attempt < maxRetries) {
+            console.warn(`Auth initialization failed on attempt ${attempt}, retrying...`, error.message);
+            return initializeAuth(attempt + 1);
           }
-        } catch (schemaError) {
-          console.error('Error handling user schema:', schemaError);
-          // Don't block login for schema errors
+          
+          // For other errors, log and continue
+          console.error('Session error:', error);
+          if (mounted) {
+            clearTimeout(loadingTimeout);
+            setLoading(false);
+          }
+          return;
         }
-      }
-      
+        
+        // Successfully got session
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        // If user is logged in, handle schema cookie with retry logic
+        if (session?.user?.email) {
+          try {
+            const currentSchema = getUserSchemaCookie();
+            
+            if (!currentSchema) {
+              console.log('No schema cookie found, fetching user schema...');
+              const userSchema = await getUserSchema(session.user.id);
+              
+              if (userSchema) {
+                setUserSchemaCookie(userSchema);
+                console.log('User schema set:', userSchema);
+              } else {
+                console.warn('No schema assigned to user:', session.user.email);
+                // Don't auto sign out here - let middleware handle it
+                // This prevents immediate logout on legitimate users
+              }
+            } else {
+              console.log('User schema already set:', currentSchema);
+            }
+          } catch (schemaError) {
+            console.error('Error handling user schema:', schemaError);
+            // Don't block login for schema errors - they might be temporary
+          }
+        }
+        
         if (mounted) {
           clearTimeout(loadingTimeout);
           setLoading(false);
         }
+        
       } catch (error) {
-        if (mounted) {
-          console.error('Auth initialization error:', error);
-          clearTimeout(loadingTimeout);
-          setLoading(false);
+        if (!mounted) return;
+        
+        console.error(`Auth initialization error on attempt ${attempt}:`, error);
+        
+        // Retry for network-related errors
+        if (attempt < maxRetries) {
+          console.log(`Retrying auth initialization (${attempt + 1}/${maxRetries})...`);
+          return initializeAuth(attempt + 1);
         }
+        
+        // Final failure
+        console.error('Auth initialization failed after all retries');
+        clearTimeout(loadingTimeout);
+        setLoading(false);
       }
     };
 
-    // Initialize authentication
-    initializeAuth();
+    // Initialize authentication with retry logic
+    initializeAuth(1);
 
     // Listen for auth changes
     const {
